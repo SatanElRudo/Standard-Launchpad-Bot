@@ -255,16 +255,24 @@ test('sniper executes sellExactIn and approves token if needed', async () => {
 
   assert.equal(res.status, 'success');
   assert.equal(res.tokensSold, '500');
-  assert.equal(sentTransactions.length, 2);
+  assert.equal(sentTransactions.length, 3);
 
   // 1. Approve router on token
-  const approveTx = sentTransactions[0];
-  assert.equal(approveTx.to.toLowerCase(), token.toLowerCase());
-  const decodedApprove = decodeFunctionData({ abi: erc20Abi, data: approveTx.data });
-  assert.equal(decodedApprove.functionName, 'approve');
+  const approveRouterTx = sentTransactions[0];
+  assert.equal(approveRouterTx.to.toLowerCase(), token.toLowerCase());
+  const decodedApproveRouter = decodeFunctionData({ abi: erc20Abi, data: approveRouterTx.data });
+  assert.equal(decodedApproveRouter.functionName, 'approve');
+  assert.equal(decodedApproveRouter.args[0].toLowerCase(), deployment.router.toLowerCase());
 
-  // 2. Sell on router
-  const sellTx = sentTransactions[1];
+  // 2. Approve curve on token
+  const approveCurveTx = sentTransactions[1];
+  assert.equal(approveCurveTx.to.toLowerCase(), token.toLowerCase());
+  const decodedApproveCurve = decodeFunctionData({ abi: erc20Abi, data: approveCurveTx.data });
+  assert.equal(decodedApproveCurve.functionName, 'approve');
+  assert.equal(decodedApproveCurve.args[0].toLowerCase(), curve.toLowerCase());
+
+  // 3. Sell on router
+  const sellTx = sentTransactions[2];
   assert.equal(sellTx.to.toLowerCase(), deployment.router.toLowerCase());
   const decodedSell = decodeFunctionData({ abi: routerAbi, data: sellTx.data });
   assert.equal(decodedSell.functionName, 'sellExactIn');

@@ -82,10 +82,13 @@ export async function executeSnipeBuy({
       functionName: 'approve',
       args: [deployment.router, maxUint256],
     });
-    await walletClient.sendTransaction({
+    const approveHash = await walletClient.sendTransaction({
       to: stock,
       data: approveData,
     });
+    if (customClient.waitForTransactionReceipt) {
+      await customClient.waitForTransactionReceipt({ hash: approveHash });
+    }
   }
 
   // 3. buyExactIn with on-chain minTokensOut protection
@@ -110,6 +113,22 @@ export async function executeSnipeBuy({
     value: 0n,
     gas: 350_000n,
   });
+
+  if (customClient.waitForTransactionReceipt) {
+    const receipt = await customClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') {
+      return {
+        walletId: wallet.id,
+        label: wallet.label,
+        address: account.address,
+        hash,
+        amount,
+        currency: stockSymbol,
+        status: 'error',
+        error: 'Kauf-Transaktion on-chain fehlgeschlagen (reverted).',
+      };
+    }
+  }
 
   return {
     walletId: wallet.id,
@@ -191,10 +210,11 @@ export async function executeMultiSnipe({
     return { ...order, minTokensOut };
   });
 
-  // 3. Execute all buys concurrently
-  const executions = ordersWithLimits.map(async order => {
+  // 3. Execute all buys in order so sequential price progression and nonces match minTokensOut
+  const results = [];
+  for (const order of ordersWithLimits) {
     try {
-      return await executeSnipeBuy({
+      const res = await executeSnipeBuy({
         curve,
         country,
         walletId: order.walletId,
@@ -204,10 +224,11 @@ export async function executeMultiSnipe({
         customClient,
         customWalletClient,
       });
+      results.push(res);
     } catch (e) {
       const w = vault.findWallet(order.walletId);
       const isSlippageRevert = /minTokensOut|slippage|revert/i.test(e.shortMessage || e.message);
-      return {
+      results.push({
         walletId: order.walletId,
         label: w?.label || 'Wallet',
         address: w?.address || '',
@@ -217,11 +238,11 @@ export async function executeMultiSnipe({
         error: isSlippageRevert
           ? 'Kauf on-chain abgewiesen: Fremder Bot hat vor uns gekauft oder Preisanstieg überschritten.'
           : (e.shortMessage || e.message || 'Kauf fehlgeschlagen'),
-      };
+      });
     }
-  });
+  }
 
-  return await Promise.all(executions);
+  return results;
 }
 
 export async function executeSnipeSell({
@@ -268,27 +289,56 @@ export async function executeSnipeSell({
     };
   }
 
-  // 2. Allowance check & approve if necessary
-  const allowance = await customClient.readContract({
-    address: token,
-    abi: erc20Abi,
-    functionName: 'allowance',
-    args: [account.address, deployment.router],
-  });
-
-  if (allowance < tokenBal) {
-    const approveData = encodeFunctionData({
+  // 2. Allowance check & approve if necessary (both router and curve)
+  for (const spender of [deployment.router, curve]) {
+    const allowance = await customClient.readContract({
+      address: token,
       abi: erc20Abi,
-      functionName: 'approve',
-      args: [deployment.router, maxUint256],
+      functionName: 'allowance',
+      args: [account.address, spender],
     });
-    await walletClient.sendTransaction({
-      to: token,
-      data: approveData,
-    });
+
+    if (allowance < tokenBal) {
+      const approveData = encodeFunctionData({
+        abi: erc20Abi,
+        functionName: 'approve',
+        args: [spender, maxUint256],
+      });
+      const approveHash = await walletClient.sendTransaction({
+        to: token,
+        data: approveData,
+      });
+      if (customClient.waitForTransactionReceipt) {
+        await customClient.waitForTransactionReceipt({ hash: approveHash });
+      }
+    }
   }
 
   // 3. sellExactIn
+  if (customClient.simulateContract) {
+    try {
+      await customClient.simulateContract({
+        account: account.address,
+        address: deployment.router,
+        abi: routerAbi,
+        functionName: 'sellExactIn',
+        args: [
+          curve,
+          tokenBal,
+          stock,
+          0n, // minPayout
+          account.address,
+          zeroAddress,
+          { recipient: zeroAddress, bps: 0 },
+        ],
+      });
+    } catch (simErr) {
+      console.error(`Simulation of sellExactIn failed for ${wallet.label}:`, simErr.shortMessage || simErr.message);
+      if (simErr.data) console.error('Revert data:', simErr.data);
+      throw simErr;
+    }
+  }
+
   const sellData = encodeFunctionData({
     abi: routerAbi,
     functionName: 'sellExactIn',
@@ -309,6 +359,20 @@ export async function executeSnipeSell({
     value: 0n,
     gas: 350_000n,
   });
+
+  if (customClient.waitForTransactionReceipt) {
+    const receipt = await customClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') {
+      return {
+        walletId: wallet.id,
+        label: wallet.label,
+        address: account.address,
+        hash,
+        status: 'error',
+        error: 'Verkaufs-Transaktion on-chain fehlgeschlagen (reverted).',
+      };
+    }
+  }
 
   return {
     walletId: wallet.id,

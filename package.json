@@ -10,6 +10,7 @@
     "dev": "npm run build && npm start",
     "test": "node --test tests/*.test.mjs",
     "test:browser": "node tests/browser.mjs",
+    "test:fork": "node scripts/fork-test.mjs",
     "check:live": "node scripts/check-live.mjs"
   },
   "dependencies": { "viem": "^2.38.0" },
