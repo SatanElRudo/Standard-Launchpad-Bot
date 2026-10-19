@@ -1,0 +1,4 @@
+name,symbol,country,description,image_path,image_url,metadata_uri,website,wallet,monitor_rules,monitor_mcap_gte,monitor_enabled
+Orbit Example,ORBIT,us,"Beispiel mit Standard-Metadaten",,,,,,,150000,true
+Local Image,LOCAL,cn,"Lokale Bildvorschau, Datei selbst in assets ablegen",assets/dein-token.png,,,,,"marketCapUsd>=200000;gain>=50",,true
+Own Metadata,OWN,kr,"Eigene URL vor dem Launch ersetzen",assets/zweites-bild.webp,,https://example.com/deine-metadata.json,,,,,false

@@ -1,0 +1,14 @@
+import { launchTerms } from '../server/chain.mjs';
+import { marketToken } from '../server/markets.mjs';
+import { deployment } from '../shared/deployment.mjs';
+const terms = await launchTerms();
+console.log('Chain/Factory validiert. Launch-Gebühr:', terms.feeEth, 'ETH. ABI:', terms.version);
+console.log('Paare:', terms.pairs.map(p => `${p.symbol}=${p.enabled}`).join(', '));
+const response = await fetch(`${deployment.markets}/v1/tokens`, { signal: AbortSignal.timeout(15000) });
+if (!response.ok) throw new Error(`Markets HTTP ${response.status}`);
+const data = await response.json();
+if (!data.tokens?.[0]) throw new Error('Keine Tokens in der API.');
+const token = await marketToken(data.tokens[0].address);
+console.log('Marktdaten:', JSON.stringify(token, null, 2));
+if (token.stale || Date.now() - token.asOfTime * 1000 > 60000) throw new Error('Marktdaten veraltet.');
+console.log('Live-Leseprüfung erfolgreich. Keine Transaktion gesendet.');

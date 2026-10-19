@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Standard · Launch Console</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="Standard Launch Console"><span class="brand-mark">S<span>↗</span></span><span>STANDARD<small>LAUNCH CONSOLE</small></span></a>
+    <div class="workspace-label">DEIN WORKSPACE <span>LOKAL</span></div>
+    <nav aria-label="Hauptnavigation">
+      <button class="nav active" data-page="launch"><span>↗</span> Token launchen</button>
+      <button class="nav" data-page="queue"><span>≡</span> Entwurfs-Queue <b id="queue-count">0</b></button>
+      <button class="nav" data-page="monitor"><span>◉</span> Monitoring <b id="monitor-count">0</b></button>
+      <button class="nav" data-page="wallets"><span>▣</span> Wallets</button>
+      <button class="nav" data-page="alerts"><span>◇</span> Alerts <b id="alert-count">0</b></button>
+    </nav>
+    <div class="side-bottom"><span class="status-dot"></span> Robinhood Chain<small>Chain ID 4663 · Mainnet</small><a href="https://www.standardreserve.xyz/liquidity/" target="_blank" rel="noopener noreferrer">Standard Reserve öffnen ↗</a></div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar"><div><span class="breadcrumb">WORKSPACE /</span> <span id="page-label">Token launchen</span></div><div class="top-actions"><span id="vault-status-pill" class="pill">Tresor: Laden …</span><span id="connection-status" class="pill">Server verbinden …</span><select id="provider" aria-label="Wallet-Anbieter"><option value="">Browser-Wallet</option></select><button id="connect" class="button secondary">Wallet verbinden ↗</button></div></header>
+    <main>
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+      <section id="page-launch" class="page">
+        <div class="page-heading"><div><p class="eyebrow">VOM ENTWURF ON-CHAIN</p><h1>Dein nächster Launch.</h1><p>Token vorbereiten, Wallet auswählen und den Start im Blick behalten.</p></div><span class="step-badge">01 <span>/ LAUNCH</span></span></div>
+        <div class="launch-grid">
+          <div>
+            <form id="launch-form" class="panel">
+              <div class="panel-heading"><h2><span class="section-no">01</span> Token-Details</h2><span class="subtle">Als Entwurf speicherbar</span></div>
+              <div class="fields two"><label>Tokenname<input name="name" id="token-name" placeholder="z. B. Orbit" maxlength="80" required></label><label>Symbol<input name="symbol" id="token-symbol" placeholder="ORBIT" maxlength="20" required></label></div>
+              <label>Beschreibung <span class="optional">optional</span><textarea name="description" maxlength="500" rows="3" placeholder="Wofür steht dein Token?"></textarea></label>
+              <div class="fields two"><label>Handelspaar<select name="country" id="country"><option value="us">SPCX · USA</option><option value="cn">BABA · China</option><option value="kr">SKHY · Südkorea</option></select></label><label>Projekt-Website <span class="optional">optional</span><input name="website" type="url" placeholder="https://…"></label></div>
+              <div class="divider"></div>
+              <div class="panel-heading"><h2><span class="section-no">02</span> Bild & Metadaten</h2></div>
+              <label class="upload"><span class="upload-icon">↑</span><span><strong>Tokenbild auswählen</strong><small>PNG, JPG oder WebP · max. 2 MB · lokale Vorschau</small></span><input id="image-file" type="file" accept="image/png,image/jpeg,image/webp"></label>
+              <label>Öffentliche Bild-URL<input name="image" placeholder="https://… oder ipfs://…"></label>
+              <label>Metadata-URL <span class="optional">optional · leer = Referenz-Token</span><input name="metadataURI" placeholder="Leer lassen für die Standard-Metadaten"></label>
+              <p id="metadata-default-note" class="field-help">Bei leerem Feld wird die verifizierte <a class="text-link" href="https://img.standardreserve.xyz/m/d4c2ac8cf9708493ab310a2cfbd5cd56.json" target="_blank" rel="noopener noreferrer">Metadata-JSON des Referenz-Tokens ↗</a> verwendet. Diese enthält dessen Bild; lokale Bilder und Beschreibung ändern diese JSON nicht.</p>
+              <p class="field-help">Exportiere die JSON-Datei und hoste sie zusammen mit deinem Bild. Der Standard-Upload ist auf deren Website beschränkt. Eigene Metadaten werden dort möglicherweise nicht angezeigt.</p>
+              <button id="export-metadata" type="button" class="text-button">↓ Metadaten als JSON exportieren</button>
+              <div class="divider"></div>
+              <div class="panel-heading"><h2><span class="section-no">03</span> Launch-Wallet</h2></div>
+              <div id="wallet-network" class="wallet-network"><span id="wallet-network-text">Wallet noch nicht verbunden.</span><button type="button" id="switch-chain" class="button secondary" hidden>Zu Robinhood wechseln</button></div>
+              <label>Gespeicherte Wallet<select id="wallet-choice"><option value="">Adresse eingeben oder Wallet verbinden</option></select></label>
+              <label>Deployer-Adresse<input name="wallet" id="launch-wallet" placeholder="0x…" spellcheck="false" autocomplete="off"></label>
+              <div class="divider"></div>
+              <div class="panel-heading"><h2><span class="section-no">04</span> Erstkauf nach Launch (Snipe)</h2><span class="subtle">Optional</span></div>
+              <label class="checkbox"><input type="checkbox" id="launch-snipe-enabled"> <strong>Unmittelbar als Erster nach Launch kaufen (bis zu 10 Wallets)</strong></label>
+              <div id="launch-snipe-box" class="panel compact" hidden>
+                <p class="field-help" id="snipe-currency-help">Kaufwährung: $SPCX. Ausgewählte Tresor-Wallets kaufen sofort nach Bestätigung auf der Bonding-Curve ein.</p>
+                <div class="fields two">
+                  <label>Standard-Betrag pro Wallet<input type="number" id="snipe-default-amount" step="any" min="0.0001" value="5" placeholder="5"></label>
+                  <div class="field-align-top"><button type="button" id="apply-snipe-amount-btn" class="button secondary">Auf gewählte Wallets anwenden</button></div>
+                </div>
+                <div id="snipe-wallets-list" class="item-list"></div>
+              </div>
+              <div class="divider"></div>
+              <div class="panel-heading"><h2><span class="section-no">05</span> Automatisches Monitoring nach Launch</h2><span class="subtle">Startet sofort bei Bestätigung</span></div>
+              <label class="checkbox"><input type="checkbox" id="launch-monitor-enabled" checked> <strong>Monitoring unmittelbar nach Launch automatisch starten</strong></label>
+              <div id="launch-monitor-box" class="panel compact">
+                <div class="fields two">
+                  <label>Regelverknüpfung
+                    <select id="launch-monitor-mode">
+                      <option value="any">Eine Regel zutrifft (ODER)</option>
+                      <option value="all">Alle Regeln zutreffen (UND)</option>
+                    </select>
+                  </label>
+                  <label>Verhalten
+                    <select id="launch-monitor-once">
+                      <option value="true">Nach erstem Alert pausieren</option>
+                      <option value="false">Wiederholen mit Cooldown</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="fields two">
+                  <label>Mindestens erfüllt (Sekunden)<input type="number" id="launch-monitor-hold" value="10" min="0" max="3600"></label>
+                  <label>Cooldown (Sekunden)<input type="number" id="launch-monitor-cooldown" value="60" min="0" max="86400"></label>
+                </div>
+                <div class="panel-heading rule-heading">
+                  <h3>Trigger-Regeln</h3>
+                  <button type="button" id="launch-add-rule-btn" class="text-button">+ Regel hinzufügen</button>
+                </div>
+                <div id="launch-rules-list"></div>
+              </div>
+              <div class="form-actions"><button type="submit" class="button primary">Launch prüfen <span>→</span></button><button id="save-draft" type="button" class="button secondary">Entwurf speichern</button></div>
+              <div id="launch-feedback" class="notice launch-feedback" role="status" aria-live="polite" hidden></div>
+            </form>
+            <section class="panel compact"><div class="panel-heading"><h2>Gespeicherte Entwürfe</h2><span id="draft-count" class="subtle">0 Entwürfe</span></div><div id="drafts" class="item-list"></div></section>
+          </div>
+          <aside class="launch-aside">
+            <section class="preview-card"><p class="eyebrow">TOKEN-VORSCHAU</p><div id="preview-art" class="token-art">✳</div><h2 id="preview-name">Dein Token</h2><p id="preview-symbol">$SYMBOL</p><div class="preview-bottom"><span>HANDELSPAAR</span><strong id="preview-pair">SPCX ↗</strong></div></section>
+            <section class="panel compact protocol"><div class="panel-heading"><h2>Launch-Konditionen</h2><button id="refresh-terms" class="icon-button" aria-label="Konditionen aktualisieren">↻</button></div><div id="terms"><p class="subtle">Vertrag wird gelesen …</p></div><a class="text-link" href="https://robin.etherscan.io/address/0x3D6Ea4e97B8AB9E1A1B4943fEBfFe22D8c920091" target="_blank" rel="noopener noreferrer">Factory im Explorer ↗</a></section>
+            <div class="quiet-note"><span>◇</span><p><strong>Nach dem Launch informiert bleiben.</strong>Setze Alerts auf Market Cap, Volumen und weitere Kennzahlen.</p></div>
+          </aside>
+        </div>
+        <section class="panel compact"><div class="panel-heading"><h2>Bestätigte Launches</h2></div><div id="launches" class="item-list"></div></section>
+      </section>
+      <section id="page-queue" class="page" hidden>
+        <div class="page-heading"><div><p class="eyebrow">ENTWÜRFE AUS EINER DATEI</p><h1>Vorbereiten. Automatisch oder einzeln.</h1><p>CSV importieren und Launches manuell oder intervallgesteuert automatisch ausführen.</p></div><a class="button secondary" href="/examples/launch-queue.csv" download>CSV-Vorlage herunterladen ↓</a></div>
+        <section class="panel">
+          <div class="panel-heading"><h2><span class="section-no">⚡</span> Automatischer Queue-Launch</h2><span id="auto-launcher-badge" class="pill">Pausiert</span></div>
+          <form id="auto-launcher-form">
+            <div class="fields two">
+              <label class="checkbox field-align-top"><input type="checkbox" id="auto-launcher-enabled" name="enabled"> <strong>Automatischer Start aktiv</strong></label>
+              <label>Intervall (Minuten)<input type="number" id="auto-launcher-interval" name="intervalMinutes" min="1" max="1440" value="5" required></label>
+            </div>
+            <div class="divider"></div>
+            <div class="panel-heading"><h2><span class="section-no">W</span> Launch-Wallet Strategie</h2></div>
+            <div class="fields two">
+              <label class="checkbox"><input type="radio" name="auto-wallet-mode" id="auto-wallet-mode-single" value="single" checked> <strong>Feste Wallet (immer dieselbe)</strong></label>
+              <label class="checkbox"><input type="radio" name="auto-wallet-mode" id="auto-wallet-mode-rotate" value="rotate"> <strong>Automatisch rotieren (durch alle angewählten)</strong></label>
+            </div>
+
+            <div id="auto-launcher-single-box">
+              <label>Standard-Tresor-Wallet<select id="auto-launcher-default-wallet" name="defaultWalletId"><option value="">Keine Standard-Wallet</option></select></label>
+              <p class="field-help">Wird für jeden Queue-Launch verwendet (sofern in der CSV keine andere Wallet angegeben ist).</p>
+            </div>
+
+            <div id="auto-launcher-rotate-box" class="panel compact" hidden>
+              <p class="field-help">Wähle die Tresor-Wallets aus, die reihum für jeden Launch verwendet werden sollen:</p>
+              <div class="item-actions">
+                <button type="button" id="rotate-select-all" class="text-button">Alle auswählen</button>
+                <button type="button" id="rotate-select-none" class="text-button">Keine</button>
+              </div>
+              <div id="auto-rotate-wallets-list" class="item-list"></div>
+            </div>
+
+            <div class="divider"></div>
+            <label class="checkbox"><input type="checkbox" id="auto-launcher-snipe-enabled"> <strong>Erstkauf (Snipe) bei automatischem Launch durchführen</strong></label>
+            <div id="auto-launcher-snipe-box" class="panel compact" hidden>
+              <p class="field-help" id="auto-snipe-currency-help">Kaufwährung hängt vom Paar ab (z. B. $SPCX für USA). Wähle bis zu 10 Wallets und Betrag:</p>
+              <div id="auto-snipe-wallets-list" class="item-list"></div>
+            </div>
+            <div class="divider"></div>
+            <label class="checkbox"><input type="checkbox" id="auto-launcher-monitor-enabled" checked> <strong>Automatisches Monitoring für Queue-Launches aktivieren</strong></label>
+            <p class="field-help">Startet sofort bei Bestätigung jedes Queue-Tokens einen Monitor (150k MC, +50% Gain, 30% Drawdown). Kann pro CSV-Zeile über <code>monitor_rules</code> oder <code>monitor_enabled</code> überschrieben werden.</p>
+            <p id="auto-launcher-info" class="field-help">Führt alle X Minuten den nächsten Eintrag der Queue mit der passenden Tresor-Wallet aus.</p>
+            <div class="form-actions"><button type="submit" class="button primary">Einstellungen speichern</button><button type="button" id="auto-launcher-trigger-now" class="button secondary">Jetzt nächsten Launch ausführen ⚡</button></div>
+          </form>
+        </section>
+        <form id="queue-form" class="panel"><h2>CSV importieren</h2><p class="field-help">UTF-8, Komma oder Semikolon, maximal 60 KB / 200 Einträge. Benötigte Spalten: name, symbol, country (us, cn, kr). Optional: wallet (Adresse oder Tresor-Name).</p><label>Datei auswählen<input id="queue-file" type="file" accept=".csv,text/csv" required></label><button class="button primary" type="submit">Entwürfe importieren →</button><p id="queue-feedback" class="field-help" role="status"></p></form>
+        <section class="panel compact"><h2>Lokale Bilder & Tresor-Wallets</h2><p class="field-help">In <code>image_path</code> kannst du <code>assets/dein-token.png</code> angeben. In der Spalte <code>wallet</code> kannst du eine öffentliche Deployer-Adresse oder den Namen einer Wallet aus deinem Tresor eintragen.</p></section>
+        <section class="panel"><div class="panel-heading"><h2>Wartende Entwürfe</h2><span class="subtle">Reihenfolge aus der CSV</span></div><div id="queue" class="item-list"></div></section>
+      </section>
+      <section id="page-monitor" class="page" hidden>
+        <div class="page-heading"><div><p class="eyebrow">DEINE TOKENS IM BLICK</p><h1>Signale statt Dauerbeobachtung.</h1><p>Lege fest, wann du informiert werden möchtest. Die Trigger senden ausschließlich Alerts.</p></div></div>
+        <div class="monitor-layout"><form id="monitor-form" class="panel"><div class="panel-heading"><h2>Neuer Monitor</h2><span class="pill">5 s Intervall</span></div><div class="fields two"><label>Monitorname<input name="name" placeholder="z. B. Orbit · Meilensteine" required maxlength="80"></label><label>Token-Adresse<input id="monitor-token" name="token" placeholder="0x…" required spellcheck="false"></label></div>
+          <div class="panel-heading rule-heading"><h3>Trigger-Regeln</h3><button id="add-rule" type="button" class="text-button">+ Regel hinzufügen</button></div><div id="rules"></div>
+          <div class="fields three"><label>Auslösen, wenn<select name="mode"><option value="any">Eine Regel zutrifft (ODER)</option><option value="all">Alle Regeln zutreffen (UND)</option></select></label><label>Mindestens erfüllt (s)<input name="holdSeconds" type="number" min="0" max="3600" value="10" required></label><label>Cooldown (s)<input name="cooldownSeconds" type="number" min="0" max="86400" value="60" required></label></div>
+          <label class="checkbox"><input name="once" type="checkbox" checked> Nach dem ersten Alert pausieren</label><p class="field-help">Wiederholte Alerts benötigen einen erneuten Eintritt der Bedingung nach dem Cooldown. Volumen und Trades beziehen sich auf rollierende 24 Stunden, nicht auf den Zeitraum seit dem Start des Monitors.</p><button class="button primary" type="submit">Monitoring starten <span>→</span></button></form>
+          <section class="panel compact"><p class="eyebrow">LÄUFT AUF DEINEM RECHNER</p><h2>Ein ruhigeres Dashboard.</h2><p class="muted">Der lokale Server prüft die Regeln auch bei geschlossenem Browser. Rechner und Server müssen eingeschaltet bleiben.</p><p class="muted">Kursänderung beginnt mit dem ersten gültigen Kurs. Das Hoch wird ab diesem Zeitpunkt beobachtet. Daten älter als 60 Sekunden pausieren die Trigger.</p><button id="notifications" class="button secondary">Browser-Alerts aktivieren</button><p id="notification-status" class="field-help">Desktop-Benachrichtigungen benötigen einen geöffneten Browser-Tab. Alle Alerts werden zusätzlich lokal gespeichert.</p></section></div>
+        <div class="section-heading"><h2>Deine Monitore</h2><span id="active-count" class="subtle">0 aktiv</span></div><div id="monitors" class="monitor-cards"></div>
+      </section>
+      <section id="page-wallets" class="page" hidden>
+        <div class="page-heading"><div><p class="eyebrow">SICHERE SCHLÜSSELVERWALTUNG</p><h1>Verschlüsselter Wallet-Tresor.</h1><p>Speichere mehrere Wallets mit AES-256-GCM geschützt durch ein Master-Passwort.</p></div><div class="item-actions"><button id="lock-vault-btn" class="button secondary" hidden>Tresor sperren 🔒</button></div></div>
+        
+        <div id="vault-init-box" class="panel" hidden>
+          <h2>Tresor einrichten (Master-Passwort)</h2>
+          <p class="field-help">Richte ein Master-Passwort ein, um deine Private Keys sicher mit AES-256-GCM und scrypt verschlüsselt auf deiner Festplatte abzulegen.</p>
+          <form id="vault-init-form">
+            <div class="fields two">
+              <label>Master-Passwort (mind. 8 Zeichen)<input type="password" id="init-password" placeholder="Passwort eingeben" required minlength="8"></label>
+              <label>Passwort wiederholen<input type="password" id="init-password-repeat" placeholder="Passwort wiederholen" required minlength="8"></label>
+            </div>
+            <button class="button primary" type="submit">Tresor verschlüsselt initialisieren 🔒</button>
+          </form>
+        </div>
+
+        <div id="vault-locked-box" class="panel" hidden>
+          <div class="panel-heading"><h2>Tresor ist gesperrt 🔒</h2><span class="pill offline">Gesperrt</span></div>
+          <p class="field-help">Gib dein Master-Passwort ein, um Wallets zu generieren, zu importieren oder Transaktionen direkt zu signieren.</p>
+          <form id="vault-unlock-form">
+            <div class="fields two">
+              <label>Master-Passwort<input type="password" id="unlock-password" placeholder="Passwort eingeben" required></label>
+              <div class="field-align-top"><button class="button primary" type="submit">Tresor entsperren 🔓</button></div>
+            </div>
+          </form>
+        </div>
+
+        <div id="vault-unlocked-box" hidden>
+          <div class="monitor-layout">
+            <form id="vault-generate-form" class="panel">
+              <h2>Neue Wallet generieren</h2>
+              <p class="field-help">Erzeugt eine neue zufällige EVM-Wallet und verschlüsselt den Private Key im Tresor.</p>
+              <label>Name / Label<input name="label" placeholder="z. B. Deployer Alpha" maxlength="60" required></label>
+              <button class="button primary" type="submit">Neue Wallet erzeugen ↗</button>
+            </form>
+            <form id="vault-import-form" class="panel">
+              <h2>Private Key importieren</h2>
+              <p class="field-help">Bestehende Wallet mit 64-stelligen Hex-Private-Key verschlüsselt hinzufügen.</p>
+              <label>Name / Label<input name="label" placeholder="z. B. Deployer Beta" maxlength="60" required></label>
+              <label>Private Key (Hex)<input name="privateKey" type="password" placeholder="0x…" autocomplete="off" spellcheck="false" required></label>
+              <button class="button primary" type="submit">Private Key importieren 🔒</button>
+            </form>
+          </div>
+          <div class="panel">
+            <div class="panel-heading"><h2>Wallets im Tresor</h2><span id="vault-wallet-count" class="subtle">0 Wallets</span></div>
+            <div id="vault-wallets" class="item-list"></div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="section-heading"><h2>Beobachtungs-Adressen (Öffentlich, ohne Key)</h2></div>
+        <div class="monitor-layout"><form id="wallet-form" class="panel"><h2>Öffentliche Adresse merken</h2><label>Name<input name="label" placeholder="z. B. Externe Wallet" maxlength="60" required></label><label>Öffentliche Adresse<input name="address" id="new-wallet-address" placeholder="0x…" required autocomplete="off" spellcheck="false"></label><button type="button" id="use-connected" class="text-button">Verbundene Adresse übernehmen</button><div class="form-actions"><button type="submit" class="button primary">Adresse speichern →</button></div></form><section class="panel compact"><p class="eyebrow">SIGNATUR IN DEINER WALLET</p><h2>Beobachtungs-Modus</h2><p class="muted">Diese Adressen enthalten keinen Private Key. Für einen Launch damit verbindest du die passende Browser-Wallet und bestätigst die Transaktion dort.</p></section></div>
+        <div id="wallets" class="panel item-list"></div>
+      </section>
+      <section id="page-alerts" class="page" hidden><div class="page-heading"><div><p class="eyebrow">DEIN EREIGNISPROTOKOLL</p><h1>Wenn es darauf ankommt.</h1><p>Ausgelöste Regeln, Kennzahlen und Zeitpunkte – lokal gespeichert.</p></div><button id="read-alerts" class="button secondary">Alle als gelesen markieren</button></div><div id="alerts" class="panel item-list"></div></section>
+      <footer><span>STANDARD / INDEPENDENT LAUNCH CONSOLE</span><span>Lokale Daten · Verschlüsselter Tresor · Auto-Launcher · Alert-only Monitoring</span></footer>
+    </main>
+  </div>
+  <dialog id="review"><div class="dialog-body"><p class="eyebrow">TRANSAKTIONSPRÜFUNG</p><h2>Bereit für den Launch?</h2><div id="review-content"></div><p class="field-help">Die Simulation prüft den aktuellen Zustand. Gas und Konditionen können sich ändern.</p><div class="form-actions"><button id="send-vault-launch" class="button primary" hidden>Mit Tresor signieren & absenden ↗</button><button id="send-launch" class="button primary">In Browser-Wallet bestätigen ↗</button><button id="close-review" class="button secondary">Zurück</button></div></div></dialog>
+  <dialog id="export-dialog"><div class="dialog-body"><p class="eyebrow">SICHERHEITSABFRAGE</p><h2>Private Key anzeigen</h2><p class="field-help">Gib dein Master-Passwort ein, um den Private Key dieser Wallet im Klartext anzuzeigen.</p><form id="export-key-form"><label>Master-Passwort<input type="password" id="export-master-password" placeholder="Passwort eingeben" required></label><div class="form-actions"><button type="submit" class="button primary">Key entschlüsseln</button><button type="button" id="close-export-btn" class="button secondary">Abbrechen</button></div></form><div id="export-result-box" class="export-box" hidden><label>Private Key (Hex)<input id="export-key-output" class="monospace" readonly spellcheck="false"></label><div class="form-actions"><button type="button" id="copy-export-key" class="button secondary">In die Zwischenablage kopieren</button></div></div></div></dialog>
+</body></html>

@@ -1,0 +1,125 @@
+import { chromium, expect } from '@playwright/test';
+import { mkdtemp, rm, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import assert from 'node:assert/strict';
+import { createApp } from '../server/app.mjs';
+const directory = await mkdtemp(join(tmpdir(), 'standard-browser-'));
+const token = '0x0000000000000000000000000000000000000001';
+const wallet = '0x1111111111111111111111111111111111111111';
+const app = createApp({ dataDir: directory, interval: 1000, market: async () => ({ token, name: 'Test Token', symbol: 'TEST', asOfTime: Date.now() / 1000, stale: false, marketCapUsd: 120000, volume24hUsd: 50000, liquidityUsd: 10000, priceUsd: 0.1, launchedAt: Date.now() / 1000 - 100 }) });
+await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
+const base = `http://127.0.0.1:${app.server.address().port}`;
+const browser = await chromium.launch({ headless: true });
+const page = await browser.newPage({ viewport: { width: 1440, height: 1150 } });
+const errors = [];
+page.on('pageerror', error => errors.push(error.message));
+page.on('console', message => { if (message.type() === 'error' && !message.text().includes('favicon')) errors.push(message.text()); });
+await page.addInitScript(({ wallet }) => {
+  const listeners = new Map();
+  window.testWallet = { account: wallet, chain: '0x1237', calls: [], rejectSwitch: false, missingChain: false,
+    emit(event, value) { if (event === 'chainChanged') this.chain = value; listeners.get(event)?.forEach(fn => fn(value)); } };
+  window.ethereum = { request: async ({ method, params }) => {
+    window.testWallet.calls.push({ method, params });
+    if (method === 'eth_requestAccounts' || method === 'eth_accounts') return [window.testWallet.account];
+    if (method === 'eth_chainId') return window.testWallet.chain;
+    if (method === 'wallet_addEthereumChain') { window.testWallet.missingChain = false; return null; }
+    if (method === 'wallet_switchEthereumChain') {
+      if (window.testWallet.rejectSwitch) throw { code: 4001, message: 'Test: Netzwerkwechsel abgelehnt' };
+      if (window.testWallet.missingChain) throw { code: 4902, message: 'Chain not added' };
+      window.testWallet.emit('chainChanged', params[0].chainId); return null;
+    }
+    if (method === 'eth_sendTransaction') throw { code: 4001, message: 'Test: Signatur abgelehnt' };
+    throw new Error(`Unexpected method ${method}`);
+  }, on(event, fn) { if (!listeners.has(event)) listeners.set(event, new Set()); listeners.get(event).add(fn); }, removeListener(event, fn) { listeners.get(event)?.delete(fn); } };
+}, { wallet });
+try {
+  await page.goto(base);
+  await expect(page.locator('#connection-status')).toContainText('Server verbunden');
+  await page.locator('#token-name').fill('Orbit Test');
+  await page.locator('#token-symbol').fill('ORBIT');
+  await page.locator('[name="description"]').fill('Local integration test.');
+  await page.locator('[name="metadataURI"]').fill('https://example.com/metadata.json');
+  await page.locator('#save-draft').click();
+  await expect(page.locator('#drafts')).toContainText('Orbit Test');
+  const download = page.waitForEvent('download'); await page.locator('#export-metadata').click();
+  assert.equal((await download).suggestedFilename(), 'ORBIT-metadata.json');
+  await page.locator('#connect').click();
+  await expect(page.locator('#connect')).toContainText('0x1111');
+  await page.locator('[data-page="wallets"]').click();
+  await page.locator('#wallet-form [name="label"]').fill('Launch wallet');
+  await page.locator('#use-connected').click();
+  await page.locator('#wallet-form button[type="submit"]').click();
+  await expect(page.locator('#wallets')).toContainText(wallet);
+  await page.locator('[data-page="monitor"]').click();
+  await page.locator('#monitor-form [name="name"]').fill('Market Cap Test');
+  await page.locator('#monitor-token').fill(token);
+  await page.locator('[name="holdSeconds"]').fill('0');
+  await page.locator('#monitor-form button[type="submit"]').click();
+  await expect(page.locator('#monitors')).toContainText('Market Cap Test');
+  await expect(page.locator('#alert-count')).toHaveText('1', { timeout: 10000 });
+  await page.locator('[data-page="alerts"]').click();
+  await expect(page.locator('#alerts')).toContainText('Market Cap (USD) ≥ 100000');
+  await page.locator('#read-alerts').click(); await expect(page.locator('#alert-count')).toHaveText('0');
+  await page.reload(); await expect(page.locator('#drafts')).toContainText('Orbit Test');
+  await page.locator('[data-action="load-draft"]').click();
+  await expect(page.locator('#token-name')).toHaveValue('Orbit Test');
+  await page.locator('#connect').click();
+  let prepareCalls = 0;
+  await page.route('**/api/prepare', async route => {
+    prepareCalls++;
+    const details = route.request().postDataJSON();
+    await route.fulfill({ json: { details, terms: { feeEth: '0.0005' }, estimatedGasEth: '0.00001', expiresAt: Date.now() + 30000,
+      transaction: { from: wallet, to: app.state.launches[0]?.factory ?? '0x3D6Ea4e97B8AB9E1A1B4943fEBfFe22D8c920091', value: '0x1', data: '0x1234', chainId: '0x1237', gas: '0x100000' } } });
+  });
+  await page.locator('#launch-wallet').fill(token);
+  await page.locator('#launch-form button[type="submit"]').click();
+  await expect(page.locator('#notice')).toContainText('stimmt nicht'); assert.equal(prepareCalls, 0);
+  await page.locator('#launch-wallet').fill(wallet);
+  await page.evaluate(() => { window.testWallet.emit('chainChanged', '0x1'); window.testWallet.rejectSwitch = true; });
+  await expect(page.locator('#switch-chain')).toBeVisible();
+  await expect(page.locator('#connect')).toContainText('0x1111');
+  await page.locator('#launch-form button[type="submit"]').click();
+  await expect(page.locator('#launch-feedback')).toContainText('Netzwerkwechsel abgelehnt'); assert.equal(prepareCalls, 0);
+  await expect(page.locator('#connect')).toContainText('0x1111');
+  await page.evaluate(() => { window.testWallet.rejectSwitch = false; window.testWallet.missingChain = true; });
+  await page.locator('#switch-chain').click();
+  await expect(page.locator('#wallet-network-text')).toContainText('Robinhood Chain (4663)');
+  await expect(page.locator('#connect')).toContainText('0x1111');
+  await page.locator('[name="metadataURI"]').fill('');
+  await expect(page.locator('#metadata-default-note')).toBeVisible();
+  await page.locator('#launch-form button[type="submit"]').click();
+  await expect(page.locator('#review')).toBeVisible();
+  assert.equal(await page.evaluate(() => window.testWallet.calls.filter(c => c.method === 'eth_sendTransaction').length), 0);
+  await page.locator('#send-launch').click();
+  await expect(page.locator('#sign-error')).toContainText('Signatur abgelehnt');
+  assert.equal(await page.evaluate(() => window.testWallet.calls.filter(c => c.method === 'eth_sendTransaction').length), 1);
+  await page.locator('#close-review').click();
+  await mkdir('test-results', { recursive: true });
+  await page.screenshot({ path: 'test-results/desktop.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Mobile viewport must not overflow horizontally');
+  await page.screenshot({ path: 'test-results/mobile.png', fullPage: true });
+  await page.locator('[data-page="monitor"]').click();
+  await page.locator('[data-action="edit-monitor"]').click();
+  await page.locator('#monitor-form [name="name"]').fill('Edited Test');
+  await page.locator('#monitor-form button[type="submit"]').click();
+  await expect(page.locator('#monitors')).toContainText('Edited Test');
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+  await page.locator('[data-action="delete-monitors"]').click();
+  await expect(page.locator('#monitors')).toContainText('Noch keine Monitore');
+  await page.locator('[data-page="queue"]').click();
+  await page.locator('#queue-file').setInputFiles('examples/launch-queue.csv');
+  await page.locator('#queue-form button[type="submit"]').click();
+  await expect(page.locator('#queue-feedback')).toContainText('3 Entwürfe importiert');
+  await expect(page.locator('#queue')).toContainText('Orbit Example');
+  await page.locator('[data-action="load-queue"]').first().click();
+  await expect(page.locator('#token-name')).toHaveValue('Orbit Example');
+  await expect(page.locator('[name="metadataURI"]')).toHaveValue('');
+  await expect(page.locator('#metadata-default-note')).toBeVisible();
+  assert.equal(await page.evaluate(() => window.testWallet.calls.filter(c => c.method === 'eth_sendTransaction').length), 1);
+  assert.deepEqual(errors, []);
+  console.log('Browser OK: drafts, metadata export, wallet profiles, alerts, persistence, editing, wallet/network guards, explicit signing, rejection handling, desktop/mobile layout.');
+} finally {
+  await browser.close(); await app.close(); await rm(directory, { recursive: true, force: true });
+}

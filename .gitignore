@@ -1,0 +1,9 @@
+node_modules/
+dist/
+data/
+test-results/
+research/*.js
+research/*.html
+research/tokens.json
+.env*
+!.env.example

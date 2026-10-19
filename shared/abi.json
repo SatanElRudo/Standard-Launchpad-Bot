@@ -1,0 +1,28 @@
+{
+  "legacy": [
+    "event Launched(address indexed token, address indexed curve, address indexed creator, (address token, address curve, address stock, address creator, address referrer, (address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks) futurePoolKey, bytes32 futurePoolId, bool transfersLockedUntilGraduation, string name, string symbol, string metadataURI, uint64 launchTime, uint128 phantomReserve, uint256 virtualTokens, uint256 endVirtualTokens, uint256 curveSupply, uint256 poolSupply, uint16 baseFeeBps, uint16 creatorShareOfBaseBps, uint16 creatorTaxBps, bool snipeTaxOn, uint16[] snipeScheduleBps, uint256 creatorBuyCap) info)",
+    "function launchFee() view returns (uint256)",
+    "function feeEscrow() view returns (address)",
+    "function curveOfToken(address token) view returns (address)",
+    "function pairAsset(address stock) view returns ((bool enabled, uint128 phantomReserve, (address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks) seededPool))",
+    "function launchConfig() view returns ((uint16 baseFeeBps, uint16 creatorShareOfBaseBps, uint16 maxCreatorTaxBps, uint16 creatorTaxStepBps, uint16[] snipeScheduleBps, bool allowSnipeOptOut, uint16 creatorBuyCapBps, uint256 sqrtPriceRunWad, int24 poolTickSpacing, uint16 maxNameBytes, uint16 maxSymbolBytes, uint16 maxUriBytes, uint256 curveSupply, uint256 poolSupply, uint256 virtualTokens, uint256 endVirtualTokens, uint256 creatorBuyCap))",
+    "function launch((address stock, string name, string symbol, string metadataURI, uint16 creatorTaxBps, bool snipeTaxOn, address referrer) p, (address payAsset, uint256 amountIn, uint256 minStockOut, uint256 minTokensOut) b) payable returns (address token, address curve, uint256 tokensBought)"
+  ],
+  "drop": [
+    "event Launched(address indexed token, address indexed curve, address indexed creator, (address token, address curve, address stock, address creator, address referrer, (address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks) futurePoolKey, bytes32 futurePoolId, bool transfersLockedUntilGraduation, string name, string symbol, string metadataURI, uint64 launchTime, uint128 phantomReserve, uint256 virtualTokens, uint256 endVirtualTokens, uint256 curveSupply, uint256 poolSupply, uint16 baseFeeBps, uint16 creatorShareOfBaseBps, uint16 creatorTaxBps, bool snipeTaxOn, uint16[] snipeScheduleBps, uint256 creatorBuyCap, uint16 charterDropBps, uint256 charterDropAmount, address charterDrop) info)",
+    "function charterDrop() view returns (address)",
+    "function launchConfig() view returns ((uint16 baseFeeBps, uint16 creatorShareOfBaseBps, uint16 maxCreatorTaxBps, uint16 creatorTaxStepBps, uint16[] snipeScheduleBps, bool allowSnipeOptOut, uint16 creatorBuyCapBps, uint256 sqrtPriceRunWad, int24 poolTickSpacing, uint16 maxNameBytes, uint16 maxSymbolBytes, uint16 maxUriBytes, uint16 maxCharterDropBps, uint256 curveSupply, uint256 poolSupply, uint256 virtualTokens, uint256 endVirtualTokens, uint256 creatorBuyCap))",
+    "function launch((address stock, string name, string symbol, string metadataURI, uint16 creatorTaxBps, bool snipeTaxOn, address referrer, uint16 charterDropBps) p, (address payAsset, uint256 amountIn, uint256 minStockOut, uint256 minTokensOut) b) payable returns (address token, address curve, uint256 tokensBought)"
+  ],
+  "router": [
+    "function buyExactIn(address curve, address payAsset, uint256 amountIn, uint256 minStockOut, uint256 minTokensOut, address recipient, address referrer, (address recipient, uint16 bps) fee) payable returns (uint256 tokensOut)",
+    "function sellExactIn(address curve, uint256 tokensIn, address payoutAsset, uint256 minPayout, address recipient, address referrer, (address recipient, uint16 bps) fee) returns (uint256 payout)"
+  ],
+  "erc20": [
+    "function balanceOf(address account) view returns (uint256)",
+    "function allowance(address owner, address spender) view returns (uint256)",
+    "function approve(address spender, uint256 amount) returns (bool)",
+    "function decimals() view returns (uint8)",
+    "function symbol() view returns (string)"
+  ]
+}
