@@ -287,6 +287,8 @@ export function createAutoLauncher({
             if (monCfg.enabled !== false) {
               createdMon = createMonitorFn({
                 token: result.token,
+                curve: result.curve,
+                country: item.country || 'us',
                 name: `${item.name} ($${item.symbol})`,
                 monitorConfig: monCfg,
                 creatorWallet: wallet.address,
@@ -320,6 +322,8 @@ export function createAutoLauncher({
             });
             if (createdMon) {
               createdMon.purchases = snipeRes;
+              createdMon.curve = result.curve;
+              createdMon.country = item.country || 'us';
             }
             for (const s of snipeRes) {
               state.alerts.unshift({

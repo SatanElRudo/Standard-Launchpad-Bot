@@ -2,7 +2,8 @@
 export const csvColumns = [
   'name', 'symbol', 'country', 'description', 'image_path', 'image_url', 'metadata_uri', 'website', 'wallet',
   'monitor_enabled', 'monitor_rules', 'monitor_mcap_gte', 'monitor_price_change_gte', 'monitor_drawdown_gte',
-  'monitor_volume_gte', 'monitor_mode', 'monitor_hold_seconds', 'monitor_cooldown_seconds', 'monitor_once'
+  'monitor_volume_gte', 'monitor_mode', 'monitor_hold_seconds', 'monitor_cooldown_seconds', 'monitor_once',
+  'monitor_auto_sell', 'monitor_sell_mode'
 ];
 export function parseCsv(source) {
   if (typeof source !== 'string' || source.length > 60000) throw new Error('CSV fehlt oder ist größer als 60 KB.');

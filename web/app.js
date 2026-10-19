@@ -178,6 +178,21 @@ if ($('#launch-monitor-enabled')) {
     if ($('#launch-monitor-box')) $('#launch-monitor-box').hidden = !e.target.checked;
   };
 }
+if ($('#launch-monitor-auto-sell')) {
+  $('#launch-monitor-auto-sell').onchange = e => {
+    if ($('#launch-auto-sell-box')) $('#launch-auto-sell-box').hidden = !e.target.checked;
+  };
+}
+if ($('#auto-launcher-auto-sell')) {
+  $('#auto-launcher-auto-sell').onchange = e => {
+    if ($('#auto-launcher-sell-mode-box')) $('#auto-launcher-sell-mode-box').hidden = !e.target.checked;
+  };
+}
+if ($('#monitor-auto-sell')) {
+  $('#monitor-auto-sell').onchange = e => {
+    if ($('#monitor-auto-sell-box')) $('#monitor-auto-sell-box').hidden = !e.target.checked;
+  };
+}
 launchRuleRow({ metric: 'marketCapUsd', operator: 'gte', threshold: 150000 });
 launchRuleRow({ metric: 'priceChangePct', operator: 'gte', threshold: 50 });
 launchRuleRow({ metric: 'drawdownPct', operator: 'gte', threshold: 30 });
@@ -336,6 +351,8 @@ $('#launch-form').onsubmit = e => { e.preventDefault(); busy(e.submitter, async 
       holdSeconds: Number($('#launch-monitor-hold').value) || 0,
       cooldownSeconds: Number($('#launch-monitor-cooldown').value) || 60,
       once: $('#launch-monitor-once').value === 'true',
+      autoSell: $('#launch-monitor-auto-sell')?.checked ?? false,
+      autoSellMode: $('#launch-monitor-sell-mode')?.value || 'all',
     };
   }
 
@@ -350,8 +367,11 @@ $('#launch-form').onsubmit = e => { e.preventDefault(); busy(e.submitter, async 
   const monitorSummary = monitorConfig
     ? `<dt>Auto-Monitoring</dt><dd>Aktiv (${monitorConfig.rules.length} Trigger-Regeln · Sofortiger Start)</dd>`
     : '<dt>Auto-Monitoring</dt><dd class="subtle">Deaktiviert</dd>';
+  const autoSellSummary = (monitorConfig && monitorConfig.autoSell)
+    ? `<dt>Auto-Exit bei Trigger</dt><dd>Aktiv (${monitorConfig.autoSellMode === 'n_minus_1' ? 'N-1 verkaufen (Günstigste behalten)' : '100% aller Wallets verkaufen'})</dd>`
+    : '';
 
-  render('#review-content', `<dl class="definition"><dt>Token</dt><dd>${esc(result.details.name)} ($${esc(result.details.symbol)})</dd><dt>Signatur über</dt><dd>${isVaultWallet ? '🔒 Tresor-Wallet (Server-Signatur)' : '🦊 Browser-Wallet'}</dd><dt>Wallet</dt><dd>${esc(result.transaction.from)}</dd><dt>Factory</dt><dd>${esc(result.transaction.to)}</dd><dt>Paar</dt><dd>${esc(state.deployment.stocks[result.details.country].symbol)}</dd><dt>Launch-Gebühr</dt><dd>${esc(result.terms.feeEth)} ETH</dd><dt>Geschätztes Gas + 20 % Puffer</dt><dd>${esc(result.estimatedGasEth)} ETH</dd><dt>Metadata-URL</dt><dd>${esc(result.details.metadataURI)}</dd>${snipeSummary}${monitorSummary}<dt>Prüfung gültig bis</dt><dd>${esc(new Date(result.expiresAt).toLocaleTimeString('de-DE'))}</dd></dl><p id="sign-error" class="error" role="alert"></p>`);
+  render('#review-content', `<dl class="definition"><dt>Token</dt><dd>${esc(result.details.name)} ($${esc(result.details.symbol)})</dd><dt>Signatur über</dt><dd>${isVaultWallet ? '🔒 Tresor-Wallet (Server-Signatur)' : '🦊 Browser-Wallet'}</dd><dt>Wallet</dt><dd>${esc(result.transaction.from)}</dd><dt>Factory</dt><dd>${esc(result.transaction.to)}</dd><dt>Paar</dt><dd>${esc(state.deployment.stocks[result.details.country].symbol)}</dd><dt>Launch-Gebühr</dt><dd>${esc(result.terms.feeEth)} ETH</dd><dt>Geschätztes Gas + 20 % Puffer</dt><dd>${esc(result.estimatedGasEth)} ETH</dd><dt>Metadata-URL</dt><dd>${esc(result.details.metadataURI)}</dd>${snipeSummary}${monitorSummary}${autoSellSummary}<dt>Prüfung gültig bis</dt><dd>${esc(new Date(result.expiresAt).toLocaleTimeString('de-DE'))}</dd></dl><p id="sign-error" class="error" role="alert"></p>`);
   
   $('#send-vault-launch').hidden = !isVaultWallet;
   $('#send-launch').hidden = isVaultWallet;
@@ -461,6 +481,8 @@ async function checkReceipt() {
         try {
           await post('/monitors', {
             token: result.token,
+            curve: result.curve,
+            country: pendingSnipe?.country || 'us',
             name: pendingLaunchMonitor.name || `${result.name} · Launch-Monitor`,
             rules: pendingLaunchMonitor.rules,
             mode: pendingLaunchMonitor.mode || 'any',
@@ -470,6 +492,8 @@ async function checkReceipt() {
             creatorWallet: result.wallet || account,
             creatorLabel: 'Deployer',
             purchases: snipeResults,
+            autoSell: Boolean(pendingLaunchMonitor.autoSell),
+            autoSellMode: pendingLaunchMonitor.autoSellMode || 'all',
           });
           show(`Token gelauncht & Monitoring für ${result.name} (${result.token}) sofort aktiv geschaltet!`);
         } catch (me) {
@@ -496,6 +520,8 @@ $('#add-rule').onclick = () => { if ($('#rules').children.length < 10) ruleRow({
 $('#monitor-form').onsubmit = e => { e.preventDefault(); busy(e.submitter, async () => {
   const data = Object.fromEntries(new FormData(e.target));
   const input = { ...data, holdSeconds: Number(data.holdSeconds), cooldownSeconds: Number(data.cooldownSeconds), once: e.target.elements.once.checked,
+    autoSell: $('#monitor-auto-sell')?.checked ?? false,
+    autoSellMode: $('#monitor-sell-mode')?.value || 'all',
     rules: [...$('#rules').children].map(row => ({ metric: row.querySelector('.metric').value, operator: row.querySelector('.operator').value, threshold: Number(row.querySelector('.threshold').value) })) };
   if (editingMonitor) await api(`/monitors/${editingMonitor}`, { method: 'PUT', body: JSON.stringify(input) });
   else await post('/monitors', input);
@@ -599,6 +625,8 @@ $('#auto-launcher-form').onsubmit = e => { e.preventDefault(); busy(e.submitter,
 
   const defaultMonitor = {
     enabled: $('#auto-launcher-monitor-enabled')?.checked ?? true,
+    autoSell: $('#auto-launcher-auto-sell')?.checked ?? false,
+    autoSellMode: $('#auto-launcher-sell-mode')?.value || 'all',
     mode: 'any',
     holdSeconds: 10,
     cooldownSeconds: 60,
@@ -779,8 +807,19 @@ async function refresh() {
         $('#auto-launcher-snipe-box').hidden = false;
       }
 
-      if (al.defaultMonitor && $('#auto-launcher-monitor-enabled')) {
-        $('#auto-launcher-monitor-enabled').checked = al.defaultMonitor.enabled !== false;
+      if (al.defaultMonitor) {
+        if ($('#auto-launcher-monitor-enabled')) {
+          $('#auto-launcher-monitor-enabled').checked = al.defaultMonitor.enabled !== false;
+        }
+        if ($('#auto-launcher-auto-sell')) {
+          $('#auto-launcher-auto-sell').checked = Boolean(al.defaultMonitor.autoSell);
+          if ($('#auto-launcher-sell-mode-box')) {
+            $('#auto-launcher-sell-mode-box').hidden = !al.defaultMonitor.autoSell;
+          }
+        }
+        if ($('#auto-launcher-sell-mode') && al.defaultMonitor.autoSellMode) {
+          $('#auto-launcher-sell-mode').value = al.defaultMonitor.autoSellMode;
+        }
       }
     }
 
@@ -813,7 +852,10 @@ async function refresh() {
         : al?.defaultMonitor?.enabled !== false
         ? `<span class="pill pill-mini">📊 Auto-Monitor</span>`
         : '';
-      return `<div class="item"><div><strong>${index + 1}. ${esc(q.name)} · $${esc(q.symbol)}</strong><small>${esc(state.deployment.stocks[q.country].symbol)} · ${walletTag}${monTag ? ` · ${monTag}` : ''}<br>${q.metadataURI ? 'Eigene Metadata-URL' : 'Standard-Metadaten des Referenz-Tokens'}${q.imagePath ? `<br>Lokale Vorschau: ${esc(q.imagePath)}` : ''}</small></div><div class="item-actions"><button class="text-button" data-action="load-queue" data-id="${q.id}">Zur Prüfung laden ↗</button><button class="text-button" data-action="delete-queue" data-id="${q.id}">Entfernen</button></div></div>`;
+      const autoSellTag = (q.monitor?.autoSell ?? (q.monitor?.enabled !== false && al?.defaultMonitor?.autoSell))
+        ? `<span class="pill pill-mini">⚡ Auto-Exit (${(q.monitor?.autoSellMode || al?.defaultMonitor?.autoSellMode) === 'n_minus_1' ? 'N-1' : '100%'})</span>`
+        : '';
+      return `<div class="item"><div><strong>${index + 1}. ${esc(q.name)} · $${esc(q.symbol)}</strong><small>${esc(state.deployment.stocks[q.country].symbol)} · ${walletTag}${monTag ? ` · ${monTag}` : ''}${autoSellTag ? ` · ${autoSellTag}` : ''}<br>${q.metadataURI ? 'Eigene Metadata-URL' : 'Standard-Metadaten des Referenz-Tokens'}${q.imagePath ? `<br>Lokale Vorschau: ${esc(q.imagePath)}` : ''}</small></div><div class="item-actions"><button class="text-button" data-action="load-queue" data-id="${q.id}">Zur Prüfung laden ↗</button><button class="text-button" data-action="delete-queue" data-id="${q.id}">Entfernen</button></div></div>`;
     }).join('') : '<div class="empty">Noch keine Entwürfe importiert. Nutze die CSV-Vorlage als Ausgangspunkt.</div>');
 
     // Wallet Choice dropdown in launch form
@@ -842,7 +884,13 @@ async function refresh() {
       const purchasesHtml = m.purchases && m.purchases.length > 0
         ? `<div class="monitor-purchases-info"><strong>Erstkäufe (${m.purchases.length} Wallets):</strong><ul class="snipe-purchases-list">${m.purchases.map(p => `<li>${p.status === 'success' ? '✅' : '❌'} <strong>${esc(p.label || short(p.address))}</strong>: ${esc(p.amount)} ${esc(p.currency || 'SPCX')} ${p.hash ? `<a class="text-link" href="${state.deployment.explorer}/tx/${esc(p.hash)}" target="_blank" rel="noopener noreferrer">${esc(short(p.hash))} ↗</a>` : ''} ${p.error ? `<span class="error">(${esc(p.error)})</span>` : ''}</li>`).join('')}</ul></div>`
         : '';
-      return `<article class="panel monitor-card"><div class="monitor-title"><h2>${esc(m.name)}</h2><span class="pill ${!m.enabled || m.error ? 'offline' : ''}">${m.error ? 'Datenfehler' : m.enabled ? 'Aktiv' : 'Pausiert'}</span></div><p class="address">${esc(m.token)}</p><div class="metrics"><div><small>MARKET CAP</small><strong>${money(s?.marketCapUsd)}</strong></div><div><small>VOLUMEN · 24 H</small><strong>${money(s?.volume24hUsd)}</strong></div><div><small>LIQUIDITÄT</small><strong>${money(s?.liquidityUsd)}</strong></div><div><small>PREIS</small><strong>${money(s?.priceUsd)}</strong></div></div><div class="rule-summary">${m.rules.map(r => `${metricLabels[r.metric]} ${r.operator === 'gte' ? '≥' : '≤'} ${esc(r.threshold)}`).join(m.mode === 'all' ? '<br>UND ' : '<br>ODER ')}<br><span class="subtle">${m.holdSeconds} s Haltezeit · ${m.once ? 'Einmalig' : `${m.cooldownSeconds} s Cooldown`}</span></div>${creatorHtml}${purchasesHtml}${m.error ? `<p class="error">${esc(m.error)}</p>` : ''}<p class="subtle">Datenstand: ${date(s?.asOfTime ? s.asOfTime * 1000 : null)}</p><div class="item-actions"><button class="text-button" data-action="toggle" data-id="${m.id}">${m.enabled ? 'Pausieren' : 'Fortsetzen'}</button><button class="text-button" data-action="edit-monitor" data-id="${m.id}">Bearbeiten</button><button class="text-button" data-action="rearm" data-id="${m.id}">Neu scharfstellen</button><button class="text-button" data-action="delete-monitors" data-id="${m.id}">Entfernen</button></div></article>`;
+      const sellBadge = m.autoSell
+        ? `<span class="pill pill-mini ${m.autoSellExecuted ? '' : 'pill-active'}">⚡ Auto-Exit (${m.autoSellMode === 'n_minus_1' ? 'N-1' : '100%'}) ${m.autoSellExecuted ? '✓ Ausgeführt' : 'Bereit'}</span>`
+        : '';
+      const sellResultsHtml = m.sellResults && m.sellResults.length > 0
+        ? `<div class="monitor-purchases-info"><strong>Auto-Exit Verkäufe:</strong><ul class="snipe-purchases-list">${m.sellResults.map(s => `<li>${s.status === 'success' ? '✅' : s.status === 'kept_best_entry' ? '💎 (Moonbag behalten)' : '❌'} <strong>${esc(s.label || short(s.walletId || s.address || ''))}</strong>: ${s.tokensSold ? `${esc(s.tokensSold)} Tokens` : ''} ${s.hash ? `<a class="text-link" href="${state.deployment.explorer}/tx/${esc(s.hash)}" target="_blank" rel="noopener noreferrer">${esc(short(s.hash))} ↗</a>` : ''} ${s.error ? `<span class="error">(${esc(s.error)})</span>` : ''}</li>`).join('')}</ul></div>`
+        : '';
+      return `<article class="panel monitor-card"><div class="monitor-title"><h2>${esc(m.name)}</h2>${sellBadge}<span class="pill ${!m.enabled || m.error ? 'offline' : ''}">${m.error ? 'Datenfehler' : m.enabled ? 'Aktiv' : 'Pausiert'}</span></div><p class="address">${esc(m.token)}</p><div class="metrics"><div><small>MARKET CAP</small><strong>${money(s?.marketCapUsd)}</strong></div><div><small>VOLUMEN · 24 H</small><strong>${money(s?.volume24hUsd)}</strong></div><div><small>LIQUIDITÄT</small><strong>${money(s?.liquidityUsd)}</strong></div><div><small>PREIS</small><strong>${money(s?.priceUsd)}</strong></div></div><div class="rule-summary">${m.rules.map(r => `${metricLabels[r.metric]} ${r.operator === 'gte' ? '≥' : '≤'} ${esc(r.threshold)}`).join(m.mode === 'all' ? '<br>UND ' : '<br>ODER ')}<br><span class="subtle">${m.holdSeconds} s Haltezeit · ${m.once ? 'Einmalig' : `${m.cooldownSeconds} s Cooldown`}</span></div>${creatorHtml}${purchasesHtml}${sellResultsHtml}${m.error ? `<p class="error">${esc(m.error)}</p>` : ''}<p class="subtle">Datenstand: ${date(s?.asOfTime ? s.asOfTime * 1000 : null)}</p><div class="item-actions"><button class="text-button" data-action="toggle" data-id="${m.id}">${m.enabled ? 'Pausieren' : 'Fortsetzen'}</button><button class="text-button" data-action="edit-monitor" data-id="${m.id}">Bearbeiten</button><button class="text-button" data-action="rearm" data-id="${m.id}">Neu scharfstellen</button><button class="text-button" data-action="delete-monitors" data-id="${m.id}">Entfernen</button></div></article>`;
     }).join('') : '<div class="panel empty">Noch keine Monitore aktiv. Füge eine Token-Adresse und deine erste Trigger-Regel hinzu.</div>');
 
     render('#alerts', state.alerts.length ? state.alerts.map(a => `<article class="item ${a.read ? '' : 'alert-unread'}"><div><strong>◇ ${esc(a.name)}</strong><small>${esc(a.message)}</small><div class="alert-details">${esc(date(a.at))} · Market Cap ${money(a.metrics.marketCapUsd)} · Volumen 24 h ${money(a.metrics.volume24hUsd)}<br>${esc(a.token)}</div></div><span class="pill">${a.read ? 'Gelesen' : 'Neu'}</span></article>`).join('') : '<div class="empty">Alles ruhig. Sobald eine Regel auslöst, findest du den Alert mit Zeitstempel und Kennzahlen hier.</div>');
@@ -895,6 +943,13 @@ document.addEventListener('click', e => {
       const m = state.monitors.find(x => x.id === id); editingMonitor = id;
       for (const key of ['name', 'token', 'mode', 'holdSeconds', 'cooldownSeconds']) $('#monitor-form').elements[key].value = m[key];
       $('#monitor-form').elements.once.checked = m.once; $('#rules').replaceChildren(); m.rules.forEach(ruleRow);
+      if ($('#monitor-auto-sell')) {
+        $('#monitor-auto-sell').checked = Boolean(m.autoSell);
+        if ($('#monitor-auto-sell-box')) $('#monitor-auto-sell-box').hidden = !m.autoSell;
+      }
+      if ($('#monitor-sell-mode') && m.autoSellMode) {
+        $('#monitor-sell-mode').value = m.autoSellMode;
+      }
       $('#monitor-form button[type="submit"]').textContent = 'Änderungen speichern →';
       show('Monitor wird bearbeitet. Speichern setzt Kursbasis und bisherigen Auslösezustand zurück.');
       $('#monitor-form').scrollIntoView({ behavior: 'smooth' });

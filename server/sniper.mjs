@@ -223,3 +223,161 @@ export async function executeMultiSnipe({
 
   return await Promise.all(executions);
 }
+
+export async function executeSnipeSell({
+  curve,
+  token,
+  country = 'us',
+  walletId,
+  vault,
+  customClient = client,
+  customWalletClient = null,
+} = {}) {
+  assert(curve && /^0x[0-9a-fA-F]{40}$/.test(curve), 'Ungültige Curve-Adresse.');
+  assert(token && /^0x[0-9a-fA-F]{40}$/.test(token), 'Ungültige Token-Adresse.');
+  const stock = deployment.stocks[country]?.address;
+  assert(stock, `Unbekanntes Handelspaar: ${country}`);
+
+  const wallet = vault.findWallet(walletId);
+  assert(wallet, 'Verkaufs-Wallet nicht im Tresor gefunden.');
+
+  const pk = vault.getPrivateKey(wallet.id);
+  const account = privateKeyToAccount(pk);
+
+  const walletClient = customWalletClient ?? createWalletClient({
+    account,
+    chain: robinhoodChain,
+    transport: http(deployment.rpc, { timeout: 25_000, retryCount: 2 }),
+  });
+
+  // 1. Check token balance
+  const tokenBal = await customClient.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [account.address],
+  });
+  if (tokenBal === 0n) {
+    return {
+      walletId: wallet.id,
+      label: wallet.label,
+      address: account.address,
+      tokensSold: '0',
+      status: 'skipped_zero_balance',
+      message: 'Keine Token zum Verkaufen auf der Wallet.',
+    };
+  }
+
+  // 2. Allowance check & approve if necessary
+  const allowance = await customClient.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: 'allowance',
+    args: [account.address, deployment.router],
+  });
+
+  if (allowance < tokenBal) {
+    const approveData = encodeFunctionData({
+      abi: erc20Abi,
+      functionName: 'approve',
+      args: [deployment.router, maxUint256],
+    });
+    await walletClient.sendTransaction({
+      to: token,
+      data: approveData,
+    });
+  }
+
+  // 3. sellExactIn
+  const sellData = encodeFunctionData({
+    abi: routerAbi,
+    functionName: 'sellExactIn',
+    args: [
+      curve,
+      tokenBal,
+      stock,
+      0n, // minPayout
+      account.address,
+      zeroAddress,
+      { recipient: zeroAddress, bps: 0 },
+    ],
+  });
+
+  const hash = await walletClient.sendTransaction({
+    to: deployment.router,
+    data: sellData,
+    value: 0n,
+    gas: 350_000n,
+  });
+
+  return {
+    walletId: wallet.id,
+    label: wallet.label,
+    address: account.address,
+    hash,
+    tokensSold: formatEther(tokenBal),
+    status: 'success',
+  };
+}
+
+export async function executeMultiSell({
+  curve,
+  token,
+  country = 'us',
+  purchases = [],
+  autoSellMode = 'all', // 'all' | 'n_minus_1'
+  vault,
+  customClient = client,
+  customWalletClient = null,
+} = {}) {
+  assert(curve && /^0x[0-9a-fA-F]{40}$/.test(curve), 'Ungültige Curve-Adresse.');
+  assert(token && /^0x[0-9a-fA-F]{40}$/.test(token), 'Ungültige Token-Adresse.');
+
+  const valid = (purchases || []).filter(p => p.status === 'success' && p.walletId);
+  if (valid.length === 0) return [];
+
+  let toSell = valid;
+  let kept = null;
+  if (autoSellMode === 'n_minus_1' && valid.length > 1) {
+    // Keep the wallet with the cheapest entry price (the first one that executed!)
+    kept = valid[0];
+    toSell = valid.slice(1);
+  }
+
+  const executions = toSell.map(async p => {
+    try {
+      return await executeSnipeSell({
+        curve,
+        token,
+        country,
+        walletId: p.walletId,
+        vault,
+        customClient,
+        customWalletClient,
+      });
+    } catch (e) {
+      return {
+        walletId: p.walletId,
+        label: p.label,
+        address: p.address,
+        status: 'error',
+        error: e.shortMessage || e.message || 'Verkauf fehlgeschlagen',
+      };
+    }
+  });
+
+  const results = await Promise.all(executions);
+
+  if (kept) {
+    results.unshift({
+      walletId: kept.walletId,
+      label: kept.label,
+      address: kept.address,
+      status: 'kept_best_entry',
+      message: 'Günstigster Einstiegspreis behalten (Moonbag)',
+    });
+  }
+
+  return results;
+}
+

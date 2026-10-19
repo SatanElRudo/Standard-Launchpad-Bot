@@ -47,8 +47,14 @@ export function monitor(input) {
   if (input.creatorWallet) {
     try { creatorWallet = address(input.creatorWallet); } catch {}
   }
+  let curve = null;
+  if (input.curve) {
+    try { curve = address(input.curve); } catch {}
+  }
   return {
     token: address(input.token),
+    curve,
+    country: ['us', 'cn', 'kr'].includes(input.country) ? input.country : 'us',
     name: text(input.name, 80, 'Monitorname'),
     rules,
     mode: input.mode,
@@ -59,5 +65,9 @@ export function monitor(input) {
     creatorWallet,
     creatorLabel: input.creatorLabel ? text(input.creatorLabel, 80, 'Creator-Label', false) : null,
     purchases: Array.isArray(input.purchases) ? input.purchases : [],
+    autoSell: Boolean(input.autoSell),
+    autoSellMode: ['all', 'n_minus_1'].includes(input.autoSellMode) ? input.autoSellMode : 'all',
+    autoSellExecuted: Boolean(input.autoSellExecuted),
+    sellResults: Array.isArray(input.sellResults) ? input.sellResults : null,
   };
 }

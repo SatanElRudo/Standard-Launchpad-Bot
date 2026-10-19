@@ -332,4 +332,65 @@ test('auto launcher passes creator wallet and records snipe purchases on monitor
   assert.equal(createdMonitorObj.purchases[0].currency, 'SPCX');
 });
 
+test('auto launcher passes autoSell and autoSellMode to monitor', async () => {
+  const store = createMockStore();
+  const vault = createVault({ store });
+  vault.init('masterpass123');
+  const deployer = vault.createWallet('Deployer');
+
+  store.state.queue.push({
+    id: 'q-autosell',
+    name: 'AutoSell Token',
+    symbol: 'AST',
+    country: 'us',
+    wallet: deployer.address,
+    monitor: {
+      enabled: true,
+      autoSell: true,
+      autoSellMode: 'n_minus_1',
+      rules: [{ metric: 'marketCapUsd', operator: 'gte', threshold: 100000 }],
+    },
+  });
+
+  let createdMonitorObj = null;
+  const createMonitorFn = ({ token, name, monitorConfig, creatorWallet, curve, country }) => {
+    createdMonitorObj = { token, name, creatorWallet, curve, country, ...monitorConfig };
+    return createdMonitorObj;
+  };
+
+  const executeLaunch = async () => ({ hash: '0x' + '1'.repeat(64) });
+  const inspectLaunch = async hash => ({
+    status: 'success',
+    hash,
+    token: '0x' + '2'.repeat(40),
+    curve: '0x' + '3'.repeat(40),
+    name: 'AutoSell Token',
+    symbol: 'AST',
+    confirmedAt: Date.now(),
+  });
+
+  const launcher = createAutoLauncher({
+    store,
+    vault,
+    executeLaunch,
+    inspectLaunch,
+    createMonitorFn,
+  });
+
+  launcher.configure({
+    enabled: true,
+    intervalMinutes: 5,
+    defaultWalletId: deployer.id,
+  });
+
+  await launcher.executeNext();
+
+  assert.ok(createdMonitorObj);
+  assert.equal(createdMonitorObj.autoSell, true);
+  assert.equal(createdMonitorObj.autoSellMode, 'n_minus_1');
+  assert.equal(createdMonitorObj.curve, '0x' + '3'.repeat(40));
+  assert.equal(createdMonitorObj.country, 'us');
+});
+
+
 

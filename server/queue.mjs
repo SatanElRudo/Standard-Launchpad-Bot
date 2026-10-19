@@ -91,6 +91,10 @@ export function parseMonitorConfig(row) {
   const holdSeconds = Number.isInteger(Number(row.monitor_hold_seconds)) ? Math.max(0, Math.min(3600, Number(row.monitor_hold_seconds))) : 10;
   const cooldownSeconds = Number.isInteger(Number(row.monitor_cooldown_seconds)) ? Math.max(0, Math.min(86400, Number(row.monitor_cooldown_seconds))) : 60;
   const once = !['false', '0', 'no', 'nein'].includes(String(row.monitor_once ?? 'true').trim().toLowerCase());
+  const autoSellRaw = String(row.monitor_auto_sell ?? '').trim().toLowerCase();
+  const autoSell = ['true', '1', 'yes', 'ja', 'on'].includes(autoSellRaw);
+  const sellModeRaw = String(row.monitor_sell_mode ?? '').trim().toLowerCase();
+  const autoSellMode = ['n-1', 'n_minus_1', 'leave_best', 'keep_cheapest', 'moonbag'].includes(sellModeRaw) ? 'n_minus_1' : 'all';
 
   return {
     enabled: true,
@@ -103,6 +107,8 @@ export function parseMonitorConfig(row) {
     holdSeconds,
     cooldownSeconds,
     once,
+    autoSell,
+    autoSellMode,
   };
 }
 

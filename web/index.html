@@ -79,6 +79,17 @@
                   <button type="button" id="launch-add-rule-btn" class="text-button">+ Regel hinzufügen</button>
                 </div>
                 <div id="launch-rules-list"></div>
+                <div class="divider"></div>
+                <label class="checkbox"><input type="checkbox" id="launch-monitor-auto-sell"> <strong>Automatischer Verkauf bei Trigger (Auto-Exit)</strong></label>
+                <div id="launch-auto-sell-box" class="fields" hidden>
+                  <label>Verkaufs-Modus bei Trigger
+                    <select id="launch-monitor-sell-mode">
+                      <option value="all">Alle Snipe-Wallets verkaufen (100 % Komplettverkauf)</option>
+                      <option value="n_minus_1">N-1 verkaufen (Wallet mit günstigstem Einstieg als Moonbag behalten)</option>
+                    </select>
+                  </label>
+                  <p class="field-help">Sobald die Trigger-Bedingungen erreicht sind, verkaufen die beteiligten Wallets ihre Token automatisch auf der Bonding-Curve.</p>
+                </div>
               </div>
               <div class="form-actions"><button type="submit" class="button primary">Launch prüfen <span>→</span></button><button id="save-draft" type="button" class="button secondary">Entwurf speichern</button></div>
               <div id="launch-feedback" class="notice launch-feedback" role="status" aria-live="polite" hidden></div>
@@ -133,6 +144,15 @@
             <div class="divider"></div>
             <label class="checkbox"><input type="checkbox" id="auto-launcher-monitor-enabled" checked> <strong>Automatisches Monitoring für Queue-Launches aktivieren</strong></label>
             <p class="field-help">Startet sofort bei Bestätigung jedes Queue-Tokens einen Monitor (150k MC, +50% Gain, 30% Drawdown). Kann pro CSV-Zeile über <code>monitor_rules</code> oder <code>monitor_enabled</code> überschrieben werden.</p>
+            <label class="checkbox"><input type="checkbox" id="auto-launcher-auto-sell"> <strong>Automatischer Verkauf bei Trigger (Auto-Exit für Queue)</strong></label>
+            <div id="auto-launcher-sell-mode-box" class="fields" hidden>
+              <label>Verkaufs-Modus bei Trigger
+                <select id="auto-launcher-sell-mode">
+                  <option value="all">Alle Snipe-Wallets verkaufen (100 %)</option>
+                  <option value="n_minus_1">N-1 verkaufen (Günstigste Wallet als Moonbag behalten)</option>
+                </select>
+              </label>
+            </div>
             <p id="auto-launcher-info" class="field-help">Führt alle X Minuten den nächsten Eintrag der Queue mit der passenden Tresor-Wallet aus.</p>
             <div class="form-actions"><button type="submit" class="button primary">Einstellungen speichern</button><button type="button" id="auto-launcher-trigger-now" class="button secondary">Jetzt nächsten Launch ausführen ⚡</button></div>
           </form>
@@ -142,11 +162,22 @@
         <section class="panel"><div class="panel-heading"><h2>Wartende Entwürfe</h2><span class="subtle">Reihenfolge aus der CSV</span></div><div id="queue" class="item-list"></div></section>
       </section>
       <section id="page-monitor" class="page" hidden>
-        <div class="page-heading"><div><p class="eyebrow">DEINE TOKENS IM BLICK</p><h1>Signale statt Dauerbeobachtung.</h1><p>Lege fest, wann du informiert werden möchtest. Die Trigger senden ausschließlich Alerts.</p></div></div>
+        <div class="page-heading"><div><p class="eyebrow">DEINE TOKENS IM BLICK</p><h1>Signale statt Dauerbeobachtung.</h1><p>Lege fest, wann du informiert werden möchtest. Die Trigger senden Alerts und können optional sofort verkaufen.</p></div></div>
         <div class="monitor-layout"><form id="monitor-form" class="panel"><div class="panel-heading"><h2>Neuer Monitor</h2><span class="pill">5 s Intervall</span></div><div class="fields two"><label>Monitorname<input name="name" placeholder="z. B. Orbit · Meilensteine" required maxlength="80"></label><label>Token-Adresse<input id="monitor-token" name="token" placeholder="0x…" required spellcheck="false"></label></div>
           <div class="panel-heading rule-heading"><h3>Trigger-Regeln</h3><button id="add-rule" type="button" class="text-button">+ Regel hinzufügen</button></div><div id="rules"></div>
           <div class="fields three"><label>Auslösen, wenn<select name="mode"><option value="any">Eine Regel zutrifft (ODER)</option><option value="all">Alle Regeln zutreffen (UND)</option></select></label><label>Mindestens erfüllt (s)<input name="holdSeconds" type="number" min="0" max="3600" value="10" required></label><label>Cooldown (s)<input name="cooldownSeconds" type="number" min="0" max="86400" value="60" required></label></div>
-          <label class="checkbox"><input name="once" type="checkbox" checked> Nach dem ersten Alert pausieren</label><p class="field-help">Wiederholte Alerts benötigen einen erneuten Eintritt der Bedingung nach dem Cooldown. Volumen und Trades beziehen sich auf rollierende 24 Stunden, nicht auf den Zeitraum seit dem Start des Monitors.</p><button class="button primary" type="submit">Monitoring starten <span>→</span></button></form>
+          <label class="checkbox"><input name="once" type="checkbox" checked> Nach dem ersten Alert pausieren</label>
+          <div class="divider"></div>
+          <label class="checkbox"><input id="monitor-auto-sell" name="autoSell" type="checkbox"> <strong>Automatischer Verkauf bei Trigger (Auto-Exit)</strong></label>
+          <div id="monitor-auto-sell-box" class="fields" hidden>
+            <label>Verkaufs-Modus bei Trigger
+              <select id="monitor-sell-mode" name="autoSellMode">
+                <option value="all">Alle Snipe-Wallets verkaufen (100 %)</option>
+                <option value="n_minus_1">N-1 verkaufen (Günstigste Wallet als Moonbag behalten)</option>
+              </select>
+            </label>
+          </div>
+          <p class="field-help">Wiederholte Alerts benötigen einen erneuten Eintritt der Bedingung nach dem Cooldown. Volumen und Trades beziehen sich auf rollierende 24 Stunden, nicht auf den Zeitraum seit dem Start des Monitors.</p><button class="button primary" type="submit">Monitoring starten <span>→</span></button></form>
           <section class="panel compact"><p class="eyebrow">LÄUFT AUF DEINEM RECHNER</p><h2>Ein ruhigeres Dashboard.</h2><p class="muted">Der lokale Server prüft die Regeln auch bei geschlossenem Browser. Rechner und Server müssen eingeschaltet bleiben.</p><p class="muted">Kursänderung beginnt mit dem ersten gültigen Kurs. Das Hoch wird ab diesem Zeitpunkt beobachtet. Daten älter als 60 Sekunden pausieren die Trigger.</p><button id="notifications" class="button secondary">Browser-Alerts aktivieren</button><p id="notification-status" class="field-help">Desktop-Benachrichtigungen benötigen einen geöffneten Browser-Tab. Alle Alerts werden zusätzlich lokal gespeichert.</p></section></div>
         <div class="section-heading"><h2>Deine Monitore</h2><span id="active-count" class="subtle">0 aktiv</span></div><div id="monitors" class="monitor-cards"></div>
       </section>

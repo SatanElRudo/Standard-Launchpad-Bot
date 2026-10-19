@@ -11,7 +11,7 @@ import { evaluateRules } from '../shared/rules.mjs';
 import { importQueue, readQueueImage } from './queue.mjs';
 import { createVault } from './vault.mjs';
 import { createAutoLauncher } from './auto-launcher.mjs';
-import { getStockBalances, executeMultiSnipe } from './sniper.mjs';
+import { getStockBalances, executeMultiSnipe, executeMultiSell } from './sniper.mjs';
 
 const json = value => JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.toString() : v);
 
@@ -25,6 +25,7 @@ export function createApp({
   balanceFn = getBalances,
   stockBalanceFn = getStockBalances,
   snipeFn = executeMultiSnipe,
+  sellFn = executeMultiSell,
 } = {}) {
   const store = createStore(dataDir), state = store.state;
   const vault = createVault({ store });
@@ -47,7 +48,59 @@ export function createApp({
             const result = evaluateRules(current, sample);
             if (result.monitor.error) result.monitor.conditionSince = null;
             state.monitors[i] = result.monitor;
-            if (result.alert) state.alerts.unshift({ id: randomUUID(), ...result.alert });
+            if (result.alert) {
+              state.alerts.unshift({ id: randomUUID(), ...result.alert });
+
+              // Auto-Sell: trigger multi-wallet sell on alert if configured
+              if (current.autoSell && !current.autoSellExecuted && Array.isArray(current.purchases) && current.purchases.length > 0 && current.curve) {
+                current.autoSellExecuted = true;
+                const targetPurchases = [...current.purchases];
+                const targetCurve = current.curve;
+                const targetToken = current.token;
+                const targetCountry = current.country || 'us';
+                const targetMode = current.autoSellMode || 'all';
+                const monitorName = current.name;
+                const monitorId = current.id;
+                void (async () => {
+                  try {
+                    const sellRes = await sellFn({
+                      curve: targetCurve,
+                      token: targetToken,
+                      country: targetCountry,
+                      purchases: targetPurchases,
+                      autoSellMode: targetMode,
+                      vault,
+                    });
+                    const mon = state.monitors.find(m => m.id === monitorId);
+                    if (mon) {
+                      mon.sellResults = sellRes;
+                    }
+                    const soldCount = sellRes.filter(r => r.status === 'success').length;
+                    const keptWallet = sellRes.find(r => r.status === 'kept_best_entry');
+                    state.alerts.unshift({
+                      id: randomUUID(),
+                      name: `Auto-Sell ausgeführt: ${monitorName}`,
+                      message: `Trigger ausgelöst! ${soldCount} von ${targetPurchases.length} Wallets haben ihre Token verkauft.${keptWallet ? ` (Wallet „${keptWallet.label}“ mit bestem Einstieg als Moonbag behalten).` : ''}`,
+                      at: Date.now(),
+                      token: targetToken,
+                      metrics: sample,
+                    });
+                    store.save();
+                  } catch (se) {
+                    console.error('Auto-sell execution error:', se);
+                    state.alerts.unshift({
+                      id: randomUUID(),
+                      name: `Auto-Sell Fehler: ${monitorName}`,
+                      message: `Automatischer Verkauf fehlgeschlagen: ${se.message}`,
+                      at: Date.now(),
+                      token: targetToken,
+                      metrics: sample,
+                    });
+                    store.save();
+                  }
+                })();
+              }
+            }
           }
         }));
       }
@@ -56,7 +109,7 @@ export function createApp({
     } finally { polling = false; }
   }
 
-  function createLaunchMonitor({ token, name, monitorConfig, creatorWallet = null, creatorLabel = null, purchases = [] }) {
+  function createLaunchMonitor({ token, curve = null, country = 'us', name, monitorConfig, creatorWallet = null, creatorLabel = null, purchases = [] }) {
     if (!monitorConfig || monitorConfig.enabled === false) return null;
     if (state.monitors.length >= 30) {
       console.warn('Maximal 30 Monitore erreicht, automatischer Launch-Monitor übersprungen.');
@@ -65,6 +118,8 @@ export function createApp({
     try {
       const monInput = {
         token,
+        curve: curve || monitorConfig.curve,
+        country: country || monitorConfig.country || 'us',
         name: text(monitorConfig.name || `${name} · Launch`, 80, 'Monitorname'),
         rules: Array.isArray(monitorConfig.rules) && monitorConfig.rules.length > 0
           ? monitorConfig.rules
@@ -76,6 +131,8 @@ export function createApp({
         creatorWallet: creatorWallet || monitorConfig.creatorWallet,
         creatorLabel: creatorLabel || monitorConfig.creatorLabel,
         purchases: Array.isArray(purchases) && purchases.length > 0 ? purchases : (monitorConfig.purchases || []),
+        autoSell: Boolean(monitorConfig.autoSell),
+        autoSellMode: monitorConfig.autoSellMode === 'n_minus_1' ? 'n_minus_1' : 'all',
       };
       const validated = monitor(monInput);
       const result = { id: randomUUID(), ...validated, createdAt: Date.now(), conditionSince: null };
@@ -221,6 +278,8 @@ export function createApp({
               if (hasMonitor) {
                 createdMon = createLaunchMonitor({
                   token: launchInfo.token,
+                  curve: launchInfo.curve,
+                  country: input.country || 'us',
                   name: `${input.name} ($${input.symbol})`,
                   monitorConfig: input.monitor,
                   creatorWallet: wallet.address,
@@ -240,6 +299,8 @@ export function createApp({
                 });
                 if (createdMon) {
                   createdMon.purchases = snipeRes;
+                  createdMon.curve = launchInfo.curve;
+                  createdMon.country = input.country || 'us';
                 }
                 for (const s of snipeRes) {
                   state.alerts.unshift({
@@ -313,7 +374,7 @@ export function createApp({
         const [, , , id, action] = path.split('/');
         const item = state.monitors.find(m => m.id === id); assert(item, 'Monitor nicht gefunden.');
         if (action === 'rearm') {
-          item.enabled = true; item.latched = false; item.lastAlertAt = null; item.baselinePrice = null; item.highPrice = null;
+          item.enabled = true; item.latched = false; item.lastAlertAt = null; item.baselinePrice = null; item.highPrice = null; item.autoSellExecuted = false;
         } else {
           assert(item.enabled || !item.once || !item.lastAlertAt, 'Dieser einmalige Alert wurde bereits ausgelöst. Bitte neu scharfstellen.');
           item.enabled = !item.enabled;
