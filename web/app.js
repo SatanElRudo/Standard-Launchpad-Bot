@@ -442,8 +442,10 @@ async function checkReceipt() {
           show(`Starte sofortigen Erstkauf für ${pendingSnipe.snipeOrders.length} Wallets …`);
           const snipeRes = await post('/snipe', {
             curve: result.curve,
+            token: result.token,
             country: pendingSnipe.country,
             snipeOrders: pendingSnipe.snipeOrders,
+            antiFrontrun: true,
           });
           snipeResults = snipeRes.results || [];
           const succ = snipeResults.filter(r => r.status === 'success');

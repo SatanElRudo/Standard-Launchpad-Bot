@@ -184,8 +184,11 @@ export function createApp({
         const input = await body(req);
         const results = await snipeFn({
           curve: input.curve,
+          token: input.token,
           country: input.country || 'us',
           snipeOrders: input.snipeOrders || [],
+          antiFrontrun: input.antiFrontrun !== false,
+          maxSlippagePct: typeof input.maxSlippagePct === 'number' ? input.maxSlippagePct : 1.0,
           vault,
         });
         return send(200, { results });
@@ -228,8 +231,11 @@ export function createApp({
               if (hasSnipe && launchInfo.curve) {
                 const snipeRes = await snipeFn({
                   curve: launchInfo.curve,
+                  token: launchInfo.token,
                   country: input.country || 'us',
                   snipeOrders: input.snipeOrders,
+                  antiFrontrun: input.antiFrontrun !== false,
+                  maxSlippagePct: typeof input.maxSlippagePct === 'number' ? input.maxSlippagePct : 1.0,
                   vault,
                 });
                 if (createdMon) {

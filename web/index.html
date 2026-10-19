@@ -45,6 +45,7 @@
               <label class="checkbox"><input type="checkbox" id="launch-snipe-enabled"> <strong>Unmittelbar als Erster nach Launch kaufen (bis zu 10 Wallets)</strong></label>
               <div id="launch-snipe-box" class="panel compact" hidden>
                 <p class="field-help" id="snipe-currency-help">Kaufwährung: $SPCX. Ausgewählte Tresor-Wallets kaufen sofort nach Bestätigung auf der Bonding-Curve ein.</p>
+                <p class="field-help"><strong>🛡️ Anti-Frontrun Schutz:</strong> Bricht den Kauf automatisch ab bzw. revertiert on-chain (minTokensOut Guard), falls ein fremder Bot oder Spieler vor unseren Wallets gekauft hat.</p>
                 <div class="fields two">
                   <label>Standard-Betrag pro Wallet<input type="number" id="snipe-default-amount" step="any" min="0.0001" value="5" placeholder="5"></label>
                   <div class="field-align-top"><button type="button" id="apply-snipe-amount-btn" class="button secondary">Auf gewählte Wallets anwenden</button></div>
@@ -126,6 +127,7 @@
             <label class="checkbox"><input type="checkbox" id="auto-launcher-snipe-enabled"> <strong>Erstkauf (Snipe) bei automatischem Launch durchführen</strong></label>
             <div id="auto-launcher-snipe-box" class="panel compact" hidden>
               <p class="field-help" id="auto-snipe-currency-help">Kaufwährung hängt vom Paar ab (z. B. $SPCX für USA). Wähle bis zu 10 Wallets und Betrag:</p>
+              <p class="field-help"><strong>🛡️ Anti-Frontrun Schutz:</strong> Bricht Käufe ab bzw. revertiert on-chain, wenn fremde Bots vor uns gekauft haben.</p>
               <div id="auto-snipe-wallets-list" class="item-list"></div>
             </div>
             <div class="divider"></div>

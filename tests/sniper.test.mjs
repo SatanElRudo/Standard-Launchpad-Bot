@@ -123,3 +123,98 @@ test('multi snipe executes up to 10 wallets concurrently and isolates errors', a
   assert.equal(results[1].status, 'error');
   assert.match(results[1].error, /nicht genug SPCX/);
 });
+
+test('anti-frontrun pre-flight check aborts all snipe buys when outsider already bought', async () => {
+  const store = createMockStore();
+  const vault = createVault({ store });
+  vault.init('masterpass123');
+  const w1 = vault.createWallet('Sniper 1');
+  const curve = '0x' + '8'.repeat(40);
+  const token = '0x' + '7'.repeat(40);
+
+  let txSent = false;
+  const customWalletClient = {
+    async sendTransaction() { txSent = true; return '0x' + 'a'.repeat(64); },
+  };
+
+  const initialSupply = 777777777777777777777777777n;
+  const customClient = {
+    async readContract({ address, functionName, args }) {
+      if (functionName === 'balanceOf' && address.toLowerCase() === token.toLowerCase()) {
+        // Curve balance is LESS than initial supply -> outsider bought!
+        return initialSupply - parseEther('1000');
+      }
+      return parseEther('100');
+    },
+  };
+
+  const results = await executeMultiSnipe({
+    curve,
+    token,
+    country: 'us',
+    snipeOrders: [{ walletId: w1.id, amount: 5 }],
+    vault,
+    antiFrontrun: true,
+    expectedInitialSupply: initialSupply,
+    customClient,
+    customWalletClient,
+  });
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].status, 'aborted_frontrun_detected');
+  assert.match(results[0].error, /Anti-Frontrun.*Fremder Bot/);
+  assert.equal(txSent, false); // No transactions were broadcast!
+});
+
+test('anti-frontrun sets minTokensOut to protect against same-block frontrunning', async () => {
+  const store = createMockStore();
+  const vault = createVault({ store });
+  vault.init('masterpass123');
+  const w1 = vault.createWallet('Sniper 1');
+  const curve = '0x' + '8'.repeat(40);
+  const token = '0x' + '7'.repeat(40);
+
+  const sentTransactions = [];
+  const customWalletClient = {
+    async sendTransaction({ to, data }) {
+      sentTransactions.push({ to, data });
+      return '0x' + 'a'.repeat(64);
+    },
+  };
+
+  const initialSupply = 777777777777777777777777777n;
+  const customClient = {
+    async readContract({ address, functionName, args }) {
+      if (functionName === 'balanceOf' && address.toLowerCase() === token.toLowerCase()) {
+        return initialSupply; // Pristine curve!
+      }
+      if (functionName === 'balanceOf') return parseEther('100');
+      if (functionName === 'allowance') return parseEther('1000');
+      return 0n;
+    },
+  };
+
+  const results = await executeMultiSnipe({
+    curve,
+    token,
+    country: 'us',
+    snipeOrders: [{ walletId: w1.id, amount: 5 }],
+    vault,
+    antiFrontrun: true,
+    maxSlippagePct: 1.0,
+    expectedInitialSupply: initialSupply,
+    customClient,
+    customWalletClient,
+  });
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].status, 'success');
+  assert.equal(sentTransactions.length, 1);
+
+  const decoded = decodeFunctionData({ abi: routerAbi, data: sentTransactions[0].data });
+  assert.equal(decoded.functionName, 'buyExactIn');
+  // minTokensOut (arg index 4) must be strictly greater than 0!
+  const minTokensOut = decoded.args[4];
+  assert.ok(minTokensOut > 0n, 'minTokensOut must be positive for frontrun protection');
+});
+

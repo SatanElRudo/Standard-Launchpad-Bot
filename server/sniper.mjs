@@ -33,6 +33,7 @@ export async function executeSnipeBuy({
   country = 'us',
   walletId,
   amount,
+  minTokensOut = 0n,
   vault,
   customClient = client,
   customWalletClient = null,
@@ -87,7 +88,7 @@ export async function executeSnipeBuy({
     });
   }
 
-  // 3. buyExactIn
+  // 3. buyExactIn with on-chain minTokensOut protection
   const buyData = encodeFunctionData({
     abi: routerAbi,
     functionName: 'buyExactIn',
@@ -96,7 +97,7 @@ export async function executeSnipeBuy({
       stock,
       amountInWei,
       0n, // minStockOut
-      0n, // minTokensOut (0 so snipe succeeds immediately)
+      minTokensOut, // on-chain frontrun & slippage protection
       account.address,
       zeroAddress,
       { recipient: zeroAddress, bps: 0 },
@@ -123,34 +124,99 @@ export async function executeSnipeBuy({
 
 export async function executeMultiSnipe({
   curve,
+  token = null,
   country = 'us',
   snipeOrders = [],
   vault,
   customClient = client,
   customWalletClient = null,
+  antiFrontrun = true,
+  maxSlippagePct = 1.0,
+  expectedInitialSupply = 777777777777777777777777777n,
+  phantomReserve = 29317145057324793856n,
+  virtualTokens = 1088888888888888888888888887n,
 } = {}) {
   assert(Array.isArray(snipeOrders), 'Snipe-Aufträge müssen als Liste übergeben werden.');
   assert(snipeOrders.length <= 10, 'Maximal 10 Snipe-Wallets erlaubt.');
   if (snipeOrders.length === 0) return [];
 
-  // Execute all buys concurrently immediately after launch
-  const executions = snipeOrders.map(async order => {
+  const stockSymbol = deployment.stocks[country]?.symbol || 'SPCX';
+
+  // 1. Pre-Flight Anti-Frontrun Check: verify no outsider has bought on the curve
+  if (antiFrontrun && token && /^0x[0-9a-fA-F]{40}$/.test(token)) {
+    try {
+      const currentCurveBal = await customClient.readContract({
+        address: token,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [curve],
+      });
+      if (currentCurveBal < expectedInitialSupply) {
+        const diff = expectedInitialSupply - currentCurveBal;
+        const msg = `Anti-Frontrun: Fremder Bot/Player hat bereits ${formatEther(diff)} Token vor uns auf der Curve gekauft. Snipe abgebrochen.`;
+        return snipeOrders.map(order => {
+          const w = vault.findWallet(order.walletId);
+          return {
+            walletId: order.walletId,
+            label: w?.label || 'Wallet',
+            address: w?.address || '',
+            amount: order.amount,
+            currency: stockSymbol,
+            status: 'aborted_frontrun_detected',
+            error: msg,
+          };
+        });
+      }
+    } catch (e) {
+      console.warn('Anti-frontrun check failed to read curve balance, continuing with slippage protection:', e.message);
+    }
+  }
+
+  // 2. Calculate sequential minTokensOut for each order in our own group
+  const k = phantomReserve * virtualTokens;
+  let runningReserve = phantomReserve;
+  const ordersWithLimits = snipeOrders.map(order => {
+    let minTokensOut = 0n;
+    if (antiFrontrun) {
+      const amountInWei = parseEther(String(order.amount));
+      const amountAfterFee = amountInWei * 9900n / 10000n; // 1% base fee
+      const nextReserve = runningReserve + amountAfterFee;
+      const nextVirtualTokens = k / nextReserve;
+      const curVirtualTokens = k / runningReserve;
+      const expectedOut = curVirtualTokens - nextVirtualTokens;
+      runningReserve = nextReserve;
+      const slippageBps = BigInt(Math.max(0, Math.floor(maxSlippagePct * 100)));
+      minTokensOut = expectedOut * (10000n - slippageBps) / 10000n;
+    }
+    return { ...order, minTokensOut };
+  });
+
+  // 3. Execute all buys concurrently
+  const executions = ordersWithLimits.map(async order => {
     try {
       return await executeSnipeBuy({
         curve,
         country,
         walletId: order.walletId,
         amount: order.amount,
+        minTokensOut: order.minTokensOut,
         vault,
         customClient,
         customWalletClient,
       });
     } catch (e) {
+      const w = vault.findWallet(order.walletId);
+      const isSlippageRevert = /minTokensOut|slippage|revert/i.test(e.shortMessage || e.message);
       return {
         walletId: order.walletId,
+        label: w?.label || 'Wallet',
+        address: w?.address || '',
         amount: order.amount,
-        status: 'error',
-        error: e.message,
+        currency: stockSymbol,
+        status: isSlippageRevert ? 'reverted_frontrun_or_slippage' : 'error',
+        error: isSlippageRevert
+          ? 'Kauf on-chain abgewiesen: Fremder Bot hat vor uns gekauft oder Preisanstieg überschritten.'
+          : (e.shortMessage || e.message || 'Kauf fehlgeschlagen'),
       };
     }
   });

@@ -312,8 +312,10 @@ export function createAutoLauncher({
           try {
             const snipeRes = await snipeFn({
               curve: result.curve,
+              token: result.token,
               country: item.country,
               snipeOrders: al.snipeOrders,
+              antiFrontrun: true,
               vault,
             });
             if (createdMon) {
