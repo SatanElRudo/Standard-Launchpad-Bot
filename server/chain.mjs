@@ -121,12 +121,12 @@ export async function prepareLaunch(input) {
       name: details.name,
       symbol: details.symbol,
       metadataURI: details.metadataURI,
-      snipeTaxOn: true,
-      referrer: zero,
-      charterDropBps: 0,
-      dropMode: 0,
-      module: zero,
-      enforced: false,
+      snipeTaxOn: details.snipeTaxOn ?? false,
+      referrer: details.referrer || zero,
+      charterDropBps: details.charterDropBps ?? 1000,
+      dropMode: details.dropMode ?? 1,
+      module: details.module || zero,
+      enforced: details.enforced ?? true,
     };
   } else if (terms.version === 'drop') {
     abi = dropAbi;
@@ -136,9 +136,9 @@ export async function prepareLaunch(input) {
       symbol: details.symbol,
       metadataURI: details.metadataURI,
       creatorTaxBps: 0,
-      snipeTaxOn: true,
-      referrer: zero,
-      charterDropBps: 0,
+      snipeTaxOn: details.snipeTaxOn ?? false,
+      referrer: details.referrer || zero,
+      charterDropBps: details.charterDropBps ?? 1000,
     };
   } else {
     abi = legacyAbi;
@@ -148,8 +148,8 @@ export async function prepareLaunch(input) {
       symbol: details.symbol,
       metadataURI: details.metadataURI,
       creatorTaxBps: 0,
-      snipeTaxOn: true,
-      referrer: zero,
+      snipeTaxOn: details.snipeTaxOn ?? false,
+      referrer: details.referrer || zero,
     };
   }
   const args = [params, { payAsset: zero, amountIn: 0n, minStockOut: 0n, minTokensOut: 0n }];

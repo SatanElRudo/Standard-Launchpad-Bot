@@ -47,12 +47,67 @@
               <p id="metadata-default-note" class="field-help">Bei leerem Feld wird die verifizierte <a class="text-link" href="https://img.standardreserve.xyz/m/d4c2ac8cf9708493ab310a2cfbd5cd56.json" target="_blank" rel="noopener noreferrer">Metadata-JSON des Referenz-Tokens ↗</a> verwendet. Diese enthält dessen Bild; lokale Bilder und Beschreibung ändern diese JSON nicht.</p>
               <button id="export-metadata" type="button" class="text-button">↓ Metadaten als JSON exportieren</button>
               <div class="divider"></div>
-              <div class="panel-heading"><h2><span class="section-no">03</span> Launch-Wallet</h2></div>
+              <div class="panel-heading"><h2><span class="section-no">03</span> Launch-Parameter &amp; Pools</h2><span class="subtle">Standard Reserve V3</span></div>
+              <div class="fields two">
+                <label>Nach Graduation (After it graduates)
+                  <select name="enforced" id="launch-enforced">
+                    <option value="true" selected>Only in its own pool (Standard)</option>
+                    <option value="false">Trades anywhere</option>
+                  </select>
+                </label>
+                <label>Hook Module
+                  <select name="hookModule" id="launch-hook-module">
+                    <option value="off" selected>Off · Standard 1 % Fee (Standard)</option>
+                    <option value="custom">Benutzerdefiniertes Modul...</option>
+                  </select>
+                </label>
+              </div>
+              <div id="hook-module-address-box" hidden>
+                <label>Hook-Modul Vertragsadresse
+                  <input name="module" id="launch-module-address" placeholder="0x… (Modul-Adresse)" spellcheck="false">
+                </label>
+              </div>
+              <div class="fields two">
+                <label>Charter Drop (Bank Charters)
+                  <select name="charterDropBps" id="launch-charter-drop">
+                    <option value="0">Off (0 %)</option>
+                    <option value="100">1 %</option>
+                    <option value="250">2.5 %</option>
+                    <option value="500">5 %</option>
+                    <option value="1000" selected>10 % (Standard)</option>
+                    <option value="8000">80 %</option>
+                  </select>
+                </label>
+                <label>Charter Payout Modus
+                  <select name="dropMode" id="launch-drop-mode">
+                    <option value="1" selected>At exit · Bei Bank-Austritt (Standard)</option>
+                    <option value="0">Per branch · Pro Filiale</option>
+                  </select>
+                </label>
+              </div>
+              <div class="fields two">
+                <label>Dev Buy (Kauf beim Launch)
+                  <select name="devBuy" id="launch-dev-buy">
+                    <option value="off" selected>Off · Kein Sofortkauf (Standard)</option>
+                    <option value="0.5">0.5 % des Supplys</option>
+                    <option value="1">1 % des Supplys</option>
+                    <option value="2.5">2.5 % des Supplys</option>
+                  </select>
+                </label>
+                <label>Snipe Tax (Launch-Schutzsteuer)
+                  <select name="snipeTaxOn" id="launch-snipe-tax">
+                    <option value="false" selected>Off · Deaktiviert (Standard)</option>
+                    <option value="true">On · 99 % Steuer (erste 7 Sekunden)</option>
+                  </select>
+                </label>
+              </div>
+              <div class="divider"></div>
+              <div class="panel-heading"><h2><span class="section-no">04</span> Launch-Wallet</h2></div>
               <div id="wallet-network" class="wallet-network"><span id="wallet-network-text">Wallet noch nicht verbunden.</span><button type="button" id="switch-chain" class="button secondary" hidden>Zu Robinhood wechseln</button></div>
               <label>Gespeicherte Wallet<select id="wallet-choice"><option value="">Adresse eingeben oder Wallet verbinden</option></select></label>
               <label>Deployer-Adresse<input name="wallet" id="launch-wallet" placeholder="0x…" spellcheck="false" autocomplete="off"></label>
               <div class="divider"></div>
-              <div class="panel-heading"><h2><span class="section-no">04</span> Erstkauf nach Launch (Snipe)</h2><span class="subtle">Optional</span></div>
+              <div class="panel-heading"><h2><span class="section-no">05</span> Erstkauf nach Launch (Snipe)</h2><span class="subtle">Optional</span></div>
               <label class="checkbox"><input type="checkbox" id="launch-snipe-enabled"> <strong>Unmittelbar als Erster nach Launch kaufen (bis zu 10 Wallets)</strong></label>
               <div id="launch-snipe-box" class="panel compact" hidden>
                 <p class="field-help" id="snipe-currency-help">Kaufwährung: $SPCX. Ausgewählte Tresor-Wallets kaufen sofort nach Bestätigung auf der Bonding-Curve ein.</p>
@@ -64,7 +119,7 @@
                 <div id="snipe-wallets-list" class="item-list"></div>
               </div>
               <div class="divider"></div>
-              <div class="panel-heading"><h2><span class="section-no">05</span> Automatisches Monitoring nach Launch</h2><span class="subtle">Startet sofort bei Bestätigung</span></div>
+              <div class="panel-heading"><h2><span class="section-no">06</span> Automatisches Monitoring nach Launch</h2><span class="subtle">Startet sofort bei Bestätigung</span></div>
               <label class="checkbox"><input type="checkbox" id="launch-monitor-enabled" checked> <strong>Monitoring unmittelbar nach Launch automatisch starten</strong></label>
               <div id="launch-monitor-box" class="panel compact">
                 <div class="fields two">

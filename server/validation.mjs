@@ -26,9 +26,94 @@ export function draft(input) {
       wallet = text(raw, 60, 'Wallet', false);
     }
   }
-  return { name: text(input.name, 80, 'Tokenname'), symbol: text(input.symbol, 20, 'Symbol'), country: input.country,
-    wallet, description: text(input.description ?? '', 500, 'Beschreibung', false),
-    image: url(input.image, 'Bild'), website: url(input.website, 'Website'), metadataURI: url(input.metadataURI, 'Metadata-URL') };
+
+  // 1. After it graduates: Only in its own pool (default: true) vs Trades anywhere (false)
+  let enforced = true;
+  const rawEnforced = input.enforced ?? input.afterGraduates ?? input.after_graduates;
+  if (rawEnforced != null && rawEnforced !== '') {
+    if (typeof rawEnforced === 'boolean') enforced = rawEnforced;
+    else {
+      const s = String(rawEnforced).trim().toLowerCase();
+      if (['false', '0', 'trades anywhere', 'anywhere', 'off', 'nein'].includes(s)) enforced = false;
+    }
+  }
+
+  // 2. Hook module: Off (zeroAddress) vs custom address
+  const zeroAddress = '0x0000000000000000000000000000000000000000';
+  let moduleAddress = zeroAddress;
+  const rawModule = input.module ?? input.hookModule ?? input.hook_module;
+  if (rawModule && !['off', 'none', 'false', '0', zeroAddress].includes(String(rawModule).trim().toLowerCase())) {
+    try { moduleAddress = address(rawModule); } catch {}
+  }
+
+  // 3. Charter drop: default 10% (1000 bps)
+  let charterDropBps = 1000;
+  const rawDrop = input.charterDropBps ?? input.charterDrop ?? input.charter_drop;
+  if (rawDrop != null && rawDrop !== '') {
+    const s = String(rawDrop).trim().replace('%', '');
+    if (/^(off|none|false|0)$/i.test(s)) {
+      charterDropBps = 0;
+    } else {
+      const n = Number(s);
+      if (Number.isFinite(n) && n >= 0) {
+        charterDropBps = n <= 80 ? Math.round(n * 100) : Math.min(8000, Math.round(n));
+      }
+    }
+  }
+
+  // 4. Charter payout: default 1 (At exit) vs 0 (Per branch)
+  let dropMode = 1;
+  const rawMode = input.dropMode ?? input.charterPayout ?? input.charter_payout;
+  if (rawMode != null && rawMode !== '') {
+    const s = String(rawMode).trim().toLowerCase();
+    if (['0', 'branch', 'per branch', 'per_branch'].includes(s)) dropMode = 0;
+  }
+
+  // 5. Dev buy: default off (0)
+  let devBuy = 'off';
+  let devBuyAmount = '0';
+  const rawDevBuy = input.devBuy ?? input.dev_buy ?? input.devBuyAmount;
+  if (rawDevBuy != null && rawDevBuy !== '' && !['off', 'none', '0', 'false'].includes(String(rawDevBuy).trim().toLowerCase())) {
+    devBuy = String(rawDevBuy).trim();
+    devBuyAmount = String(input.devBuyAmount ?? rawDevBuy).trim().replace(',', '.');
+  }
+
+  // 6. Snipe tax: default false (Off)
+  let snipeTaxOn = false;
+  const rawTax = input.snipeTaxOn ?? input.snipeTax ?? input.snipe_tax;
+  if (rawTax != null && rawTax !== '') {
+    if (typeof rawTax === 'boolean') snipeTaxOn = rawTax;
+    else {
+      const s = String(rawTax).trim().toLowerCase();
+      if (['true', '1', 'on', 'ja', 'yes'].includes(s)) snipeTaxOn = true;
+    }
+  }
+
+  // 7. Referrer (Fees go to): default zeroAddress (or fee recipient)
+  let referrer = zeroAddress;
+  const rawRef = input.referrer ?? input.feeRecipient ?? input.fees_go_to;
+  if (rawRef && rawRef !== zeroAddress) {
+    try { referrer = address(rawRef); } catch {}
+  }
+
+  return {
+    name: text(input.name, 80, 'Tokenname'),
+    symbol: text(input.symbol, 20, 'Symbol'),
+    country: input.country,
+    wallet,
+    description: text(input.description ?? '', 500, 'Beschreibung', false),
+    image: url(input.image, 'Bild'),
+    website: url(input.website, 'Website'),
+    metadataURI: url(input.metadataURI, 'Metadata-URL'),
+    enforced,
+    module: moduleAddress,
+    charterDropBps,
+    dropMode,
+    devBuy,
+    devBuyAmount,
+    snipeTaxOn,
+    referrer,
+  };
 }
 export function monitor(input) {
   assert(Array.isArray(input.rules) && input.rules.length > 0 && input.rules.length <= 10, '1 bis 10 Regeln erforderlich.');

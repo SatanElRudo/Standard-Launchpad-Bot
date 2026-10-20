@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../server/app.mjs';
 import { encodeFunctionData, decodeFunctionData } from 'viem';
-import { dropAbi, legacyAbi, client, prepareLaunch } from '../server/chain.mjs';
+import { dropAbi, legacyAbi, vhooksAbi, client, prepareLaunch } from '../server/chain.mjs';
 import { deployment } from '../shared/deployment.mjs';
 const token = '0x0000000000000000000000000000000000000001';
 const monitorInput = { token, name: 'Signal', mode: 'any', holdSeconds: 0, cooldownSeconds: 10, once: true, rules: [{ metric: 'marketCapUsd', operator: 'gte', threshold: 100 }] };
@@ -42,10 +42,14 @@ test('API validates inputs, rejects foreign origins and persists alerts across r
     assert.equal((await fetch(base + '/../../package.json')).status, 404);
   } finally { await app.close(); await rm(directory, { recursive: true, force: true }); }
 });
-test('both published launch ABIs encode a launch with no purchase', () => {
+test('all published launch ABIs encode a launch with no purchase', () => {
   const zero = '0x0000000000000000000000000000000000000000';
-  for (const [abi, extra] of [[legacyAbi, {}], [dropAbi, { charterDropBps: 0 }]]) {
-    const args = [{ stock: token, name: 'Orbit', symbol: 'ORB', metadataURI: 'https://example.com/meta.json', creatorTaxBps: 0, snipeTaxOn: true, referrer: zero, ...extra }, { payAsset: zero, amountIn: 0n, minStockOut: 0n, minTokensOut: 0n }];
+  for (const [abi, extra] of [
+    [legacyAbi, { creatorTaxBps: 0, snipeTaxOn: true }],
+    [dropAbi, { creatorTaxBps: 0, snipeTaxOn: true, charterDropBps: 0 }],
+    [vhooksAbi, { snipeTaxOn: false, charterDropBps: 1000, dropMode: 1, module: zero, enforced: true }],
+  ]) {
+    const args = [{ stock: token, name: 'Orbit', symbol: 'ORB', metadataURI: 'https://example.com/meta.json', referrer: zero, ...extra }, { payAsset: zero, amountIn: 0n, minStockOut: 0n, minTokensOut: 0n }];
     const decoded = decodeFunctionData({ abi, data: encodeFunctionData({ abi, functionName: 'launch', args }) });
     assert.equal(decoded.functionName, 'launch'); assert.equal(decoded.args[1].amountIn, 0n); assert.equal(decoded.args[0].name, 'Orbit');
   }

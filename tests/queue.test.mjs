@@ -68,3 +68,41 @@ test('parseMonitorConfig correctly extracts monitor rules and options from CSV r
   assert.equal(cfg4, null);
 });
 
+test('draft and queue import correctly set new V3 launch settings and defaults', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'standard-vhooks-')), assets = join(root, 'assets');
+  await mkdir(assets);
+  try {
+    // 1. Default row without explicit settings
+    const defaultCsv = 'name,symbol,country\nAlpha,ALP,us\n';
+    const rows = importQueue(defaultCsv, assets);
+    assert.equal(rows.length, 1);
+    const row = rows[0];
+
+    // Must match the user's requested defaults:
+    // - after graduates: only in its own pool (enforced: true)
+    // - hook module: off (module: zeroAddress)
+    // - charter drop: 10% (charterDropBps: 1000)
+    // - payout: at exit (dropMode: 1)
+    // - dev buy: off
+    // - snipe tax: off (snipeTaxOn: false)
+    assert.equal(row.enforced, true);
+    assert.equal(row.module, '0x0000000000000000000000000000000000000000');
+    assert.equal(row.charterDropBps, 1000);
+    assert.equal(row.dropMode, 1);
+    assert.equal(row.devBuy, 'off');
+    assert.equal(row.snipeTaxOn, false);
+
+    // 2. Custom row with explicit overrides
+    const customCsv = 'name,symbol,country,after_graduates,charter_drop,charter_payout,snipe_tax\nBeta,BET,eth,trades anywhere,5%,per branch,on\n';
+    const customRows = importQueue(customCsv, assets);
+    const customRow = customRows[0];
+    assert.equal(customRow.country, 'eth');
+    assert.equal(customRow.enforced, false);
+    assert.equal(customRow.charterDropBps, 500);
+    assert.equal(customRow.dropMode, 0);
+    assert.equal(customRow.snipeTaxOn, true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+

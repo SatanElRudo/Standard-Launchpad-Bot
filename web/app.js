@@ -108,7 +108,27 @@ if ($('#switch-chain')) {
   });
 }
 
-function getDraft() { return Object.fromEntries(new FormData($('#launch-form'))); }
+function getDraft() {
+  const data = Object.fromEntries(new FormData($('#launch-form')));
+  data.enforced = $('#launch-enforced') ? $('#launch-enforced').value === 'true' : true;
+  data.charterDropBps = $('#launch-charter-drop') ? Number($('#launch-charter-drop').value) : 1000;
+  data.dropMode = $('#launch-drop-mode') ? Number($('#launch-drop-mode').value) : 1;
+  data.snipeTaxOn = $('#launch-snipe-tax') ? $('#launch-snipe-tax').value === 'true' : false;
+  data.devBuy = $('#launch-dev-buy')?.value || 'off';
+  if ($('#launch-hook-module')?.value === 'custom') {
+    data.module = $('#launch-module-address')?.value?.trim() || '0x0000000000000000000000000000000000000000';
+  } else {
+    data.module = '0x0000000000000000000000000000000000000000';
+  }
+  return data;
+}
+
+if ($('#launch-hook-module')) {
+  $('#launch-hook-module').onchange = e => {
+    const box = $('#hook-module-address-box');
+    if (box) box.hidden = e.target.value !== 'custom';
+  };
+}
 function preview() {
   const draft = getDraft(); prepared = null;
   $('#preview-name').textContent = draft.name || 'Dein Token';
@@ -770,6 +790,20 @@ $('#queue-form').onsubmit = e => {
 function loadDraft(draft) {
   for (const name of ['name', 'symbol', 'country', 'description', 'image', 'website', 'metadataURI', 'wallet']) {
     if ($('#launch-form').elements[name]) $('#launch-form').elements[name].value = draft[name] || (name === 'wallet' ? account ?? '' : '');
+  }
+  if ($('#launch-enforced')) $('#launch-enforced').value = String(draft.enforced ?? true);
+  if ($('#launch-charter-drop')) $('#launch-charter-drop').value = String(draft.charterDropBps ?? 1000);
+  if ($('#launch-drop-mode')) $('#launch-drop-mode').value = String(draft.dropMode ?? 1);
+  if ($('#launch-snipe-tax')) $('#launch-snipe-tax').value = String(draft.snipeTaxOn ?? false);
+  if ($('#launch-dev-buy')) $('#launch-dev-buy').value = String(draft.devBuy ?? 'off');
+  if (draft.module && draft.module !== '0x0000000000000000000000000000000000000000') {
+    if ($('#launch-hook-module')) $('#launch-hook-module').value = 'custom';
+    if ($('#hook-module-address-box')) $('#hook-module-address-box').hidden = false;
+    if ($('#launch-module-address')) $('#launch-module-address').value = draft.module;
+  } else {
+    if ($('#launch-hook-module')) $('#launch-hook-module').value = 'off';
+    if ($('#hook-module-address-box')) $('#hook-module-address-box').hidden = true;
+    if ($('#launch-module-address')) $('#launch-module-address').value = '';
   }
   $('#image-file').value = ''; $('#preview-art').textContent = '✳';
   if (localImage) URL.revokeObjectURL(localImage); localImage = null;
