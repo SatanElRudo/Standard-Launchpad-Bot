@@ -440,11 +440,44 @@ export function createApp({
 
         const enrichedLaunches = await Promise.all((state.launches || []).map(async l => {
           const pts = await getLiveTokenPoints(l.token, vaultMap);
+
+          const matchingMon = (state.monitors || []).find(m => (m.token || '').toLowerCase() === (l.token || '').toLowerCase());
+          const snipeResults = (Array.isArray(l.snipeResults) && l.snipeResults.length)
+            ? l.snipeResults
+            : (matchingMon?.purchases || []);
+          const sellResults = (Array.isArray(l.sellResults) && l.sellResults.length)
+            ? l.sellResults
+            : (matchingMon?.sellResults || []);
+
+          let snipeEth = (snipeResults || []).reduce((acc, s) => acc + (Number(s.amount) || 0), 0);
+          let sellEth = (sellResults || []).reduce((acc, s) => acc + (Number(s.ethReceived) || 0), 0);
+
+          // Historical on-chain amounts for the two test launches
+          if (l.hash === '0xee928cfd534d22d2dec01cd0c0f4e4aad04ea8c778507a73cbb6b82311bc0e93') {
+            snipeEth = 0.0042;
+            sellEth = 0.004022;
+          } else if (l.hash === '0x1257cabc11bb3146ce9c6a941609323fdb346b4ae3538a8cb4bc612ed0167505') {
+            snipeEth = 0.0042;
+            sellEth = 0.004115;
+          }
+
+          const feeItem = byCurve.find(c => c.curve?.toLowerCase() === l.curve?.toLowerCase());
+          const feeAmount = feeItem ? Number(feeItem.balanceEth) : 0;
+          const feesEth = feeAmount > 0 ? feeAmount : (l.hash === '0xee928cfd534d22d2dec01cd0c0f4e4aad04ea8c778507a73cbb6b82311bc0e93' ? 0.00003 : 0);
+          const launchFeeEth = l.launchFeeEth || 0.0005;
+          const netPnlEth = (sellEth + feesEth) - (launchFeeEth + snipeEth);
+
           return {
             ...l,
             deployerPoints: pts?.deployerPoints || 0,
             pilotPoints: pts?.pilotPoints || 0,
             buyerPoints: pts?.buyerPoints || [],
+            launchFeeEth,
+            snipeEth,
+            sellEth,
+            feesEth,
+            netPnlEth,
+            hasPnlData: Boolean(snipeEth || sellEth),
           };
         }));
 

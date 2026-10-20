@@ -516,6 +516,13 @@ export function createAutoLauncher({
           metrics: {},
         });
 
+        const savedLaunch = state.launches.find(l => l.hash === hash);
+        if (savedLaunch) {
+          savedLaunch.launchFeeEth = 0.0005;
+          savedLaunch.snipeResults = snipeRes;
+          savedLaunch.sellResults = [];
+        }
+
         // 2. Initialize monitor with the already-executed purchases attached
         let createdMon = null;
         if (typeof createMonitorFn === 'function') {

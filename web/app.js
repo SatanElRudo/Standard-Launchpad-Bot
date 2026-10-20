@@ -1029,7 +1029,7 @@ function loadDraft(draft) {
 }
 
 function renderDashboard(state, feeData) {
-  const launches = state.launches || [];
+  const launches = (feeData && Array.isArray(feeData.launches) && feeData.launches.length) ? feeData.launches : (state.launches || []);
   const byWallet = feeData?.byWallet || {};
 
   if ($('#dash-total-launches')) $('#dash-total-launches').textContent = launches.length;
@@ -1146,15 +1146,12 @@ function renderDashboard(state, feeData) {
       const totalLaunchPoints = Number((depPoints + pltPoints + buyPoints).toFixed(2));
 
       // PnL calculation per launch
-      const launchFeeEth = 0.0005; // Base contract factory fee
-      const snipeEth = (Array.isArray(l.snipeResults) ? l.snipeResults : []).reduce((acc, s) => acc + (Number(s.amount) || 0), 0)
-        || (Array.isArray(l.purchases) ? l.purchases : []).reduce((acc, s) => acc + (Number(s.amount) || 0), 0)
-        || (l.name === 'Space Kitty' ? 0.0042 : 0);
-      const sellEth = (Array.isArray(l.sellResults) ? l.sellResults : []).reduce((acc, s) => acc + (Number(s.ethReceived) || 0), 0)
-        || (l.name === 'Space Kitty' ? 0.004115 : 0);
-      const feesAccrued = feeAmount > 0 ? feeAmount : (l.name === 'Space Kitty' ? 0.00002507 : 0);
-      const netPnlEth = (sellEth + feesAccrued) - (launchFeeEth + snipeEth);
-      const hasPnlData = Boolean(snipeEth || sellEth);
+      const launchFeeEth = Number(l.launchFeeEth || 0.0005);
+      const snipeEth = Number(l.snipeEth || 0);
+      const sellEth = Number(l.sellEth || 0);
+      const feesAccrued = feeAmount > 0 ? feeAmount : Number(l.feesEth || 0);
+      const netPnlEth = (typeof l.netPnlEth === 'number') ? l.netPnlEth : ((sellEth + feesAccrued) - (launchFeeEth + snipeEth));
+      const hasPnlData = Boolean(l.hasPnlData || snipeEth || sellEth);
 
       return `
         <div class="item dash-launch-item">
