@@ -10,7 +10,7 @@ export function createStore(directory) {
   state.queue ??= [];
   state.vault ??= { initialized: false, salt: null, verifier: null, wallets: [] };
   state.autoLauncher ??= { enabled: false, intervalMinutes: 5, defaultWalletId: '', status: 'idle', nextRunAt: null, lastRunAt: null, lastError: null, lastSuccess: null };
-  state.settings ??= { pointValueMode: 'auto', customPointValueUsd: 0.00345 };
+  state.settings ??= { pointValueMode: 'auto', customPointValueUsd: 0.02622, rewardVaultUsd: 1141245.2 };
   const statement = db.prepare('INSERT INTO state (id,value) VALUES (1,?) ON CONFLICT(id) DO UPDATE SET value = excluded.value');
   const save = () => statement.run(JSON.stringify(state));
   // Gaps in observation do not count toward a sustained trigger.

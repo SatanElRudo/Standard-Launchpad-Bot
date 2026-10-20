@@ -66,31 +66,31 @@ async function getLiveTokenPoints(tokenAddr, vaultMap) {
   }
 }
 
-let pilotPoolCache = { at: 0, data: null };
-async function getLivePilotPoolStats() {
-  if (pilotPoolCache.data && Date.now() - pilotPoolCache.at < 60_000) {
+let pilotPoolCache = { at: 0, vault: 0, data: null };
+async function getLivePilotPoolStats(rewardVaultOverride) {
+  const currentRewardVault = Number(rewardVaultOverride) || 1141245.2;
+  if (pilotPoolCache.data && Date.now() - pilotPoolCache.at < 30_000 && pilotPoolCache.vault === currentRewardVault) {
     return pilotPoolCache.data;
   }
   try {
-    const [summaryRes, poolRes] = await Promise.all([
-      fetch('https://markets.standardreserve.xyz/v1/pilot/summary').then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch('https://markets.standardreserve.xyz/v1/pilot/pool').then(r => r.ok ? r.json() : null).catch(() => null),
-    ]);
+    const summaryRes = await fetch('https://markets.standardreserve.xyz/v1/pilot/summary')
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null);
 
-    const totalPoints = Number(summaryRes?.summary?.totalPoints || summaryRes?.totalPoints || 0);
-    const feesUsd = Number(poolRes?.pool?.feesUsd || poolRes?.feesUsd || 0);
-    const poolPointValueUsd = (totalPoints > 0 && feesUsd > 0) ? Number((feesUsd / totalPoints).toFixed(6)) : 0.00345;
+    const totalPoints = Number(summaryRes?.summary?.totalPoints || summaryRes?.totalPoints || 43521515);
+    const poolPointValueUsd = totalPoints > 0 ? Number((currentRewardVault / totalPoints).toFixed(5)) : 0.02622;
 
     const stats = {
       totalPoints,
-      feesUsd,
+      feesUsd: currentRewardVault,
+      rewardVaultUsd: currentRewardVault,
       poolPointValueUsd,
       updatedAt: Date.now(),
     };
-    pilotPoolCache = { at: Date.now(), data: stats };
+    pilotPoolCache = { at: Date.now(), vault: currentRewardVault, data: stats };
     return stats;
   } catch {
-    return pilotPoolCache.data || { totalPoints: 43468000, feesUsd: 150000, poolPointValueUsd: 0.00345, updatedAt: 0 };
+    return pilotPoolCache.data || { totalPoints: 43521515, feesUsd: currentRewardVault, rewardVaultUsd: currentRewardVault, poolPointValueUsd: 0.02622, updatedAt: 0 };
   }
 }
 
@@ -509,26 +509,26 @@ export function createApp({
           };
         }));
 
-        const pilotStats = await getLivePilotPoolStats();
+        const pilotStats = await getLivePilotPoolStats(state.settings?.rewardVaultUsd);
         return send(200, {
           byCurve,
           byWallet,
           launches: enrichedLaunches,
           pilotStats,
-          settings: state.settings || { pointValueMode: 'auto', customPointValueUsd: 0.00345 },
+          settings: state.settings || { pointValueMode: 'auto', customPointValueUsd: 0.02622, rewardVaultUsd: 1141245.2 },
         });
       }
       if (req.method === 'GET' && path === '/api/settings') {
-        const pilotStats = await getLivePilotPoolStats();
+        const pilotStats = await getLivePilotPoolStats(state.settings?.rewardVaultUsd);
         return send(200, {
-          settings: state.settings || { pointValueMode: 'auto', customPointValueUsd: 0.00345 },
+          settings: state.settings || { pointValueMode: 'auto', customPointValueUsd: 0.02622, rewardVaultUsd: 1141245.2 },
           pilotStats,
         });
       }
       if (req.method === 'POST' && path === '/api/settings') {
         const input = await body(req);
         state.settings = {
-          ...(state.settings || { pointValueMode: 'auto', customPointValueUsd: 0.00345 }),
+          ...(state.settings || { pointValueMode: 'auto', customPointValueUsd: 0.02622, rewardVaultUsd: 1141245.2 }),
           ...input,
         };
         store.save();
@@ -900,7 +900,7 @@ export function createApp({
       };
       if (req.method !== 'GET' || !files[path]) return send(404, { error: 'Nicht gefunden.' });
       const [file, type] = files[path], content = await readFile(resolve('dist', file));
-      res.writeHead(200, { 'Content-Type': `${type}; charset=utf-8` }); res.end(content);
+      res.writeHead(200, { 'Content-Type': `${type}; charset=utf-8`, 'Cache-Control': 'no-cache, no-store, must-revalidate' }); res.end(content);
     } catch (e) { send(e.status ?? 502, { error: (e.shortMessage ?? e.message ?? 'Unbekannter Fehler').slice(0, 800) }); }
   });
 
