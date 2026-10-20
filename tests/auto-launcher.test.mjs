@@ -392,5 +392,75 @@ test('auto launcher passes autoSell and autoSellMode to monitor', async () => {
   assert.equal(createdMonitorObj.country, 'us');
 });
 
+test('auto launcher respects interval variance in seconds', async () => {
+  const store = createMockStore();
+  const vault = createVault({ store, autoLockMs: 60000 });
+  vault.init('masterpass123');
+  const launcher = createAutoLauncher({ store, vault });
+
+  launcher.configure({
+    enabled: true,
+    intervalMinutes: 10,
+    intervalVarianceSeconds: 30,
+  });
+
+  const st = launcher.status();
+  assert.equal(st.intervalMinutes, 10);
+  assert.equal(st.intervalVarianceSeconds, 30);
+});
+
+test('auto launcher selects pair-specific snipe amounts based on token country', async () => {
+  const store = createMockStore();
+  const vault = createVault({ store, autoLockMs: 60000 });
+  vault.init('masterpass123');
+  const deployer = vault.createWallet('Deployer');
+  const sniper = vault.createWallet('Sniper');
+
+  // Push an ETH token
+  store.state.queue.push({
+    name: 'Ether Cat',
+    symbol: 'ECAT',
+    country: 'eth',
+    description: 'Cat on ETH',
+  });
+
+  let executedSnipeOrders = null;
+  const mockSnipeFn = async ({ snipeOrders }) => {
+    executedSnipeOrders = snipeOrders;
+    return snipeOrders.map(o => ({ walletId: o.walletId, label: 'Sniper', amount: o.amount, currency: 'ETH', status: 'success', hash: '0xabc' }));
+  };
+
+  const launcher = createAutoLauncher({
+    store,
+    vault,
+    executeLaunch: async () => ({ hash: '0x' + '1'.repeat(64) }),
+    inspectLaunch: async hash => ({ status: 'success', hash, token: '0x' + '2'.repeat(40), curve: '0x' + '3'.repeat(40), name: 'Ether Cat', symbol: 'ECAT' }),
+    snipeFn: mockSnipeFn,
+  });
+
+  launcher.configure({
+    enabled: true,
+    intervalMinutes: 5,
+    defaultWalletId: deployer.id,
+    pairAmounts: {
+      us: '0.05',
+      eth: '0.002',
+      cn: '0.1',
+      kr: '0.1',
+    },
+    snipeOrders: [
+      {
+        walletId: sniper.id,
+        amounts: { us: '0.08', eth: '0.003' },
+      }
+    ],
+  });
+
+  await launcher.executeNext();
+  assert.ok(executedSnipeOrders);
+  assert.equal(executedSnipeOrders[0].amount, '0.003');
+});
+
+
 
 

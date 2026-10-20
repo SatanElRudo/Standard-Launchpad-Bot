@@ -1,5 +1,6 @@
 import { resolve, relative, isAbsolute, extname } from 'node:path';
-import { realpath, open } from 'node:fs/promises';
+import { realpath, open, readFile } from 'node:fs/promises';
+import { watch } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { parseCsv } from '../shared/csv.mjs';
 import { draft, assert, text } from './validation.mjs';
@@ -144,7 +145,7 @@ export async function readQueueImage(item, root) {
   const file = await open(canonical, 'r');
   try {
     const stat = await file.stat();
-    assert(stat.isFile() && stat.size <= 2 * 1024 * 1024, 'Bild muss eine Datei bis 2 MB sein.');
+    assert(stat.isFile() && stat.size <= 10 * 1024 * 1024, 'Bild muss eine Datei bis 10 MB sein.');
     const data = await file.readFile();
     const type = data.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) ? 'image/png'
       : data.subarray(0, 3).equals(Buffer.from([255,216,255])) ? 'image/jpeg'
@@ -152,4 +153,89 @@ export async function readQueueImage(item, root) {
     assert(type, 'Datei enthält kein unterstütztes Bildformat.');
     return { data, type };
   } finally { await file.close(); }
+}
+
+export function createQueueWatcher({ projectRoot, assetDir, state, store, onSync } = {}) {
+  state.queueSync ??= {
+    path: 'examples/launch-queue.csv',
+    lastSyncAt: null,
+    error: null,
+    count: state.queue?.length ?? 0,
+  };
+
+  let activeWatcher = null;
+  let debounceTimer = null;
+
+  function resolveCsvPath(userPath) {
+    const raw = String(userPath || state.queueSync.path || 'examples/launch-queue.csv').trim();
+    return isAbsolute(raw) ? raw : resolve(projectRoot, raw);
+  }
+
+  async function syncFromFile(filePath) {
+    const targetPath = filePath || state.queueSync.path || 'examples/launch-queue.csv';
+    const fullPath = resolveCsvPath(targetPath);
+    try {
+      const content = await readFile(fullPath, 'utf8');
+      const items = importQueue(content, assetDir);
+      assert(items.length <= 200, 'Die Queue darf maximal 200 Einträge enthalten.');
+      state.queue = items;
+      state.queueSync.path = targetPath;
+      state.queueSync.lastSyncAt = Date.now();
+      state.queueSync.error = null;
+      state.queueSync.count = items.length;
+      store.save();
+      if (typeof onSync === 'function') onSync({ count: items.length, path: targetPath });
+      return { success: true, count: items.length, path: targetPath };
+    } catch (err) {
+      state.queueSync.error = err.message;
+      store.save();
+      throw err;
+    }
+  }
+
+  function startWatch(filePath) {
+    if (activeWatcher) {
+      try { activeWatcher.close(); } catch {}
+      activeWatcher = null;
+    }
+    const targetPath = filePath || state.queueSync.path || 'examples/launch-queue.csv';
+    const fullPath = resolveCsvPath(targetPath);
+    try {
+      activeWatcher = watch(fullPath, (eventType) => {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(async () => {
+          try {
+            await syncFromFile(targetPath);
+            console.log(`[QueueWatcher] CSV automatisch neu eingelesen: ${targetPath} (${state.queue.length} Einträge).`);
+          } catch (e) {
+            console.warn(`[QueueWatcher] Fehler beim automatischen Einlesen von ${targetPath}:`, e.message);
+          }
+        }, 300);
+      });
+      activeWatcher.on('error', () => {
+        // Ignored
+      });
+    } catch (e) {
+      // File may not exist yet or cannot be watched
+    }
+  }
+
+  return {
+    syncFromFile,
+    startWatch,
+    status() {
+      return {
+        path: state.queueSync?.path || 'examples/launch-queue.csv',
+        lastSyncAt: state.queueSync?.lastSyncAt || null,
+        error: state.queueSync?.error || null,
+        count: state.queue?.length ?? 0,
+      };
+    },
+    stop() {
+      if (activeWatcher) {
+        try { activeWatcher.close(); } catch {}
+        activeWatcher = null;
+      }
+    }
+  };
 }

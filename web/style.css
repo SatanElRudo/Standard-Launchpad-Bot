@@ -49,3 +49,24 @@
 .button.mini{padding:6px 12px;font-size:11px;min-height:30px;gap:6px;line-height:1}
 .dash-item-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .danger-hover:hover{color:var(--danger);border-color:var(--danger);background:rgba(244,160,155,0.08)}
+.fields.four{grid-template-columns:repeat(4,1fr);gap:12px}
+@media(max-width:950px){.fields.four{grid-template-columns:1fr 1fr}}
+@media(max-width:650px){.fields.four{grid-template-columns:1fr}}
+.pair-amounts-box{background:#151813;border:1px solid #2b3324;border-radius:8px;padding:16px;margin:12px 0 16px}
+.pair-amounts-box .fields{margin-top:10px}
+.next-token-panel{border:2px solid var(--accent);background:linear-gradient(180deg,#1f251a 0%,#171a15 100%);border-radius:10px;margin-bottom:24px}
+.pill-highlight{background:var(--accent);color:#171d10;font-weight:700;border:0}
+.next-token-grid{display:grid;grid-template-columns:140px minmax(0,1fr);gap:20px;align-items:start;margin-top:14px}
+@media(max-width:750px){.next-token-grid{grid-template-columns:1fr}}
+.next-token-art{width:140px;height:140px;border-radius:12px;border:1px solid #3c492f;overflow:hidden;background:#232a1e;display:flex;align-items:center;justify-content:center;font-size:48px}
+.next-token-art img{width:100%;height:100%;object-fit:cover}
+.claim-spinner{display:inline-block;animation:spin 1s infinite linear;margin-right:6px}
+@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+.two-auto{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center}
+@media(max-width:650px){.two-auto{grid-template-columns:1fr}}
+.legacy-import-details{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
+.legacy-import-details summary{cursor:pointer;user-select:none;padding:4px 0}
+.legacy-import-details[open] summary{margin-bottom:12px}
+.auto-snipe-pair-inputs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px}
+.auto-snipe-pair-inputs label{margin:0;font-size:10px}
+.auto-snipe-pair-inputs input{margin-top:2px;padding:6px 8px;font-size:11px}

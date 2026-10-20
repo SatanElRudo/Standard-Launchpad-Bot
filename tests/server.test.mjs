@@ -138,7 +138,7 @@ test('Vault and Auto-Launcher API endpoints', async () => {
     assert.equal(cfg.intervalMinutes, 10);
     assert.equal(cfg.defaultWalletId, generated.id);
 
-    // 8. Queue an item and trigger auto-launcher
+    // 8. Queue an item, update it via PUT /api/queue/:id, and trigger auto-launcher
     app.state.queue.push({
       id: 'q-1',
       name: 'Queue Token',
@@ -146,6 +146,26 @@ test('Vault and Auto-Launcher API endpoints', async () => {
       country: 'us',
       wallet: 'Primary Deployer',
     });
+
+    const updateRes = await request('/api/queue/q-1', {
+      name: 'Edited Space Kitty',
+      symbol: 'ESKITTY',
+      country: 'eth',
+      charterDrop: '15%',
+    }, 'PUT');
+    assert.equal(updateRes.status, 200);
+    const updatedItem = await updateRes.json();
+    assert.equal(updatedItem.name, 'Edited Space Kitty');
+    assert.equal(updatedItem.symbol, 'ESKITTY');
+    assert.equal(updatedItem.country, 'eth');
+    assert.equal(app.state.queue[0].name, 'Edited Space Kitty');
+
+    // Test queue sync status endpoint
+    const syncStatusRes = await request('/api/queue/sync', null, 'GET');
+    assert.equal(syncStatusRes.status, 200);
+    const syncStatus = await syncStatusRes.json();
+    assert.ok(syncStatus.path);
+
     const triggerRes = await request('/api/auto-launcher/trigger', {});
     assert.equal(triggerRes.status, 200);
     const trig = await triggerRes.json();

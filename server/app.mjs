@@ -8,7 +8,7 @@ import { launchTerms, prepareLaunch, inspectLaunch, executeDirectLaunch, getBala
 import { address, draft, monitor, text, assert } from './validation.mjs';
 import { deployment } from '../shared/deployment.mjs';
 import { evaluateRules } from '../shared/rules.mjs';
-import { importQueue, readQueueImage } from './queue.mjs';
+import { importQueue, readQueueImage, createQueueWatcher, validateImagePath } from './queue.mjs';
 import { createVault } from './vault.mjs';
 import { createAutoLauncher } from './auto-launcher.mjs';
 import { getStockBalances, executeMultiSnipe, executeMultiSell } from './sniper.mjs';
@@ -157,6 +157,30 @@ export function createApp({
     snipeFn,
     createMonitorFn: createLaunchMonitor,
   });
+
+  const projectRoot = resolve(assetDir, '..');
+  const queueWatcher = createQueueWatcher({
+    projectRoot,
+    assetDir,
+    state,
+    store,
+    onSync: ({ count, path }) => {
+      state.alerts.unshift({
+        id: randomUUID(),
+        name: 'CSV-Queue synchronisiert',
+        message: `${count} Entwürfe aus ${path} eingelesen.`,
+        at: Date.now(),
+        token: '0x0000000000000000000000000000000000000000',
+        metrics: {},
+      });
+    }
+  });
+
+  try {
+    queueWatcher.startWatch();
+  } catch (e) {
+    console.warn('Queue watcher could not start on init:', e.message);
+  }
 
   async function body(req) {
     assert(req.headers['content-type']?.split(';')[0] === 'application/json', 'Content-Type application/json erforderlich.');
@@ -505,6 +529,50 @@ export function createApp({
         assert(state.queue.length + items.length <= 200, 'Die Queue darf maximal 200 Einträge enthalten.');
         state.queue.push(...items); store.save(); return send(201, { imported: items.length });
       }
+      if (req.method === 'GET' && path === '/api/queue/sync') {
+        return send(200, queueWatcher.status());
+      }
+      if (req.method === 'POST' && path === '/api/queue/sync') {
+        const input = await body(req);
+        const result = await queueWatcher.syncFromFile(input.path);
+        if (input.path) queueWatcher.startWatch(input.path);
+        return send(200, result);
+      }
+      if (req.method === 'PUT' && /^\/api\/queue\/[^/]+$/.test(path)) {
+        const id = path.split('/')[3];
+        const idx = state.queue.findIndex((q, i) => q.id === id || String(i) === id);
+        assert(idx !== -1, 'Queue-Eintrag nicht gefunden.');
+        const existing = state.queue[idx];
+        const input = await body(req);
+        const validated = draft({
+          name: input.name ?? existing.name,
+          symbol: input.symbol ?? existing.symbol,
+          description: input.description ?? existing.description,
+          website: input.website ?? existing.website,
+          image: input.image ?? existing.image ?? '',
+          metadataURI: input.metadataURI ?? existing.metadataURI ?? '',
+          country: input.country ?? existing.country,
+          afterGraduates: input.afterGraduates ?? existing.afterGraduates,
+          hook: input.hook ?? existing.hook,
+          charterDrop: input.charterDrop ?? existing.charterDrop,
+          payout: input.payout ?? existing.payout,
+          devBuy: input.devBuy ?? existing.devBuy,
+          snipeTax: input.snipeTax ?? existing.snipeTax,
+          wallet: input.wallet ?? existing.wallet,
+        });
+        let imagePath = existing.imagePath;
+        if (input.imagePath) {
+          try { imagePath = validateImagePath(input.imagePath, assetDir); } catch {}
+        }
+        state.queue[idx] = {
+          ...existing,
+          ...validated,
+          imagePath,
+          monitor: input.monitor && typeof input.monitor === 'object' ? { ...existing.monitor, ...input.monitor } : existing.monitor,
+        };
+        store.save();
+        return send(200, state.queue[idx]);
+      }
       if (req.method === 'GET' && /^\/api\/queue\/[^/]+\/image$/.test(path)) {
         const item = state.queue.find(item => item.id === path.split('/')[3]); assert(item, 'Queue-Eintrag nicht gefunden.');
         const { data, type } = await readQueueImage(item, assetDir);
@@ -575,7 +643,13 @@ export function createApp({
         res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="launch-queue.csv"' });
         res.end(await readFile(resolve('examples/launch-queue.csv'))); return;
       }
-      const files = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'] };
+      const files = {
+        '/': ['index.html', 'text/html'],
+        '/app.js': ['app.js', 'text/javascript'],
+        '/style.css': ['style.css', 'text/css'],
+        '/favicon.svg': ['favicon.svg', 'image/svg+xml'],
+        '/favicon.ico': ['favicon.svg', 'image/svg+xml'],
+      };
       if (req.method !== 'GET' || !files[path]) return send(404, { error: 'Nicht gefunden.' });
       const [file, type] = files[path], content = await readFile(resolve('dist', file));
       res.writeHead(200, { 'Content-Type': `${type}; charset=utf-8` }); res.end(content);
@@ -595,9 +669,10 @@ export function createApp({
     clearInterval(timer);
     await new Promise(resolve => server.close(resolve));
     while (polling) await new Promise(resolve => setTimeout(resolve, 20));
+    queueWatcher.stop();
     vault.close();
     store.close();
   }
 
-  return { server, state, vault, autoLauncher, poll, close };
+  return { server, state, vault, autoLauncher, queueWatcher, poll, close };
 }

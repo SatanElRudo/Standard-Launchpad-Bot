@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="de">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Standard · Launch Console</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Standard · Launch Console</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="alternate icon" href="/favicon.ico"><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head>
 <body>
   <aside class="sidebar">
     <a class="brand" href="/" aria-label="Standard Launch Console"><span class="brand-mark">S<span>↗</span></span><span>STANDARD<small>LAUNCH CONSOLE</small></span></a>
@@ -228,9 +228,10 @@
         <section class="panel">
           <div class="panel-heading"><h2><span class="section-no">⚡</span> Automatischer Queue-Launch</h2><span id="auto-launcher-badge" class="pill">Pausiert</span></div>
           <form id="auto-launcher-form">
-            <div class="fields two">
+            <div class="fields three">
               <label class="checkbox field-align-top"><input type="checkbox" id="auto-launcher-enabled" name="enabled"> <strong>Automatischer Start aktiv</strong></label>
-              <label>Intervall (Minuten)<input type="number" id="auto-launcher-interval" name="intervalMinutes" min="1" max="1440" value="5" required></label>
+              <label>Basis-Intervall (Minuten)<input type="number" id="auto-launcher-interval" name="intervalMinutes" min="1" max="1440" value="5" required></label>
+              <label>Zufällige Varianz (± Sekunden)<input type="number" id="auto-launcher-variance" name="intervalVarianceSeconds" min="0" max="3600" value="0" step="5"></label>
             </div>
             <div class="divider"></div>
             <div class="panel-heading"><h2><span class="section-no">W</span> Launch-Wallet Strategie</h2></div>
@@ -256,7 +257,17 @@
             <div class="divider"></div>
             <label class="checkbox"><input type="checkbox" id="auto-launcher-snipe-enabled"> <strong>Erstkauf (Snipe) bei automatischem Launch durchführen</strong></label>
             <div id="auto-launcher-snipe-box" class="panel compact" hidden>
-              <p class="field-help" id="auto-snipe-currency-help">Kaufwährung hängt vom Paar ab (z. B. $SPCX für USA). Wähle bis zu 10 Wallets und Betrag:</p>
+              <div class="pair-amounts-box">
+                <div class="panel-heading"><h3>Standard-Kaufbeträge je Handelspaar</h3><button type="button" id="auto-snipe-apply-all-btn" class="text-button">Auf alle angewählten Wallets übertragen ↓</button></div>
+                <p class="field-help" id="auto-snipe-currency-help">Weil Tokens unterschiedliche Paare nutzen, gilt der Betrag passend zum jeweiligen Launch-Asset:</p>
+                <div class="fields four">
+                  <label>🇺🇸 US ($SPCX)<input type="text" inputmode="decimal" id="auto-snipe-amount-us" value="0.05" class="snipe-amount" placeholder="0.05"></label>
+                  <label>⟠ ETH (ETH)<input type="text" inputmode="decimal" id="auto-snipe-amount-eth" value="0.005" class="snipe-amount" placeholder="0.005"></label>
+                  <label>🇨🇳 CN ($BABA)<input type="text" inputmode="decimal" id="auto-snipe-amount-cn" value="0.1" class="snipe-amount" placeholder="0.1"></label>
+                  <label>🇰🇷 KR ($SKHY)<input type="text" inputmode="decimal" id="auto-snipe-amount-kr" value="0.1" class="snipe-amount" placeholder="0.1"></label>
+                </div>
+              </div>
+
               <div class="item-actions">
                 <button type="button" id="auto-snipe-select-all" class="text-button">Alle auswählen</button>
                 <button type="button" id="auto-snipe-select-none" class="text-button">Keine</button>
@@ -280,7 +291,44 @@
             <div class="form-actions"><button type="submit" class="button primary">Einstellungen speichern</button><button type="button" id="auto-launcher-trigger-now" class="button secondary">Jetzt nächsten Launch ausführen ⚡</button></div>
           </form>
         </section>
-        <form id="queue-form" class="panel"><h2>CSV importieren</h2><p class="field-help">UTF-8, Komma oder Semikolon, maximal 60 KB / 200 Einträge. Benötigte Spalten: name, symbol, country (us, eth, cn, kr). Optional: wallet (Adresse oder Tresor-Name).</p><label>Datei auswählen<input id="queue-file" type="file" accept=".csv,text/csv" required></label><button class="button primary" type="submit">Entwürfe importieren →</button><p id="queue-feedback" class="field-help" role="status"></p></form>
+
+        <!-- Nächster Token Teaser Panel -->
+        <section id="next-token-card" class="panel next-token-panel" hidden>
+          <div class="panel-heading">
+            <div>
+              <span class="pill pill-highlight">⚡ NÄCHSTER TOKEN IM ABLAUF</span>
+              <h2>Vorschau & Live-Bearbeitung vor Launch</h2>
+            </div>
+            <span id="next-token-status-badge" class="pill">Bereit</span>
+          </div>
+          <div id="next-token-content"></div>
+        </section>
+
+        <!-- CSV Auto-Sync Panel -->
+        <section class="panel compact" id="queue-sync-panel">
+          <div class="panel-heading">
+            <h2>📁 CSV-Dateisynchronisation (Auto-Reload)</h2>
+            <span id="queue-sync-badge" class="pill">Bereit</span>
+          </div>
+          <p class="field-help">Gib den Pfad zu deiner CSV-Datei auf dem Server an. Sobald die Datei auf der Festplatte geändert und gespeichert wird, aktualisiert der Bot die Queue automatisch ohne manuellen Upload.</p>
+          <form id="queue-sync-form" class="two-auto">
+            <input type="text" id="queue-file-path" value="examples/launch-queue.csv" placeholder="examples/launch-queue.csv" required spellcheck="false">
+            <div class="item-actions">
+              <button type="submit" class="button primary">Pfad überwachen ➔</button>
+              <button type="button" id="queue-sync-now-btn" class="button secondary">Jetzt neu einlesen ↻</button>
+            </div>
+          </form>
+          <p id="queue-sync-info" class="field-help subtle">Dateipfad: examples/launch-queue.csv</p>
+        </section>
+
+        <form id="queue-form" class="panel compact">
+          <div class="panel-heading"><h2>Manuelle CSV importieren (Upload)</h2></div>
+          <p class="field-help">UTF-8, Komma oder Semikolon, maximal 60 KB / 200 Einträge. Benötigte Spalten: name, symbol, country (us, eth, cn, kr). Optional: wallet (Adresse oder Tresor-Name).</p>
+          <label>Datei auswählen<input id="queue-file" type="file" accept=".csv,text/csv"></label>
+          <button class="button secondary" type="submit">Entwürfe importieren →</button>
+          <p id="queue-feedback" class="field-help" role="status"></p>
+        </form>
+
         <section class="panel compact"><h2>Lokale Bilder & Tresor-Wallets</h2><p class="field-help">In <code>image_path</code> kannst du <code>assets/dein-token.png</code> angeben. In der Spalte <code>wallet</code> kannst du eine öffentliche Deployer-Adresse oder den Namen einer Wallet aus deinem Tresor eintragen.</p></section>
         <section class="panel"><div class="panel-heading"><h2>Wartende Entwürfe</h2><span class="subtle">Reihenfolge aus der CSV</span></div><div id="queue" class="item-list"></div></section>
       </section>

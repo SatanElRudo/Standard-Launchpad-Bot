@@ -150,8 +150,8 @@ function preview() {
   $('#preview-pair').textContent = `${pairInfo.symbol} ↗`;
   $('#metadata-default-note').hidden = Boolean(draft.metadataURI.trim());
   const curMsg = `Kaufwährung: $${pairInfo.symbol} (Handelspaar ${pairInfo.symbol} · ${pairInfo.name}). Ausgewählte Tresor-Wallets kaufen sofort nach Bestätigung auf der Bonding-Curve ein.`;
-  $('#snipe-currency-help').textContent = curMsg;
-  $('#auto-snipe-currency-help').textContent = `Kaufwährung hängt vom Paar ab (z. B. $${pairInfo.symbol} für ${pairInfo.name}). Wähle bis zu 10 Wallets und Betrag:`;
+  if ($('#snipe-currency-help')) $('#snipe-currency-help').textContent = curMsg;
+  if ($('#auto-snipe-currency-help')) $('#auto-snipe-currency-help').textContent = `Kaufwährung hängt vom Paar ab (z. B. $${pairInfo.symbol} für ${pairInfo.name}). Wähle bis zu 10 Wallets und Betrag:`;
   void updateSnipeWallets(draft.country);
 }
 $('#launch-form').addEventListener('input', preview);
@@ -402,34 +402,60 @@ async function updateSnipeWallets(country = 'us') {
     document.querySelectorAll('#auto-snipe-wallets-list .auto-snipe-checkbox:checked').forEach(cb => autoChecked.add(cb.dataset.walletId));
     document.querySelectorAll('#auto-snipe-wallets-list .auto-snipe-wallet-row').forEach(row => {
       const id = row.querySelector('.auto-snipe-checkbox')?.dataset.walletId;
-      const amt = row.querySelector('.auto-snipe-amount-input')?.value;
-      if (id && amt) autoAmounts[id] = amt;
+      if (id) {
+        autoAmounts[id] = {
+          us: row.querySelector('.auto-snipe-amt-us')?.value || '0.05',
+          eth: row.querySelector('.auto-snipe-amt-eth')?.value || '0.005',
+          cn: row.querySelector('.auto-snipe-amt-cn')?.value || '0.1',
+          kr: row.querySelector('.auto-snipe-amt-kr')?.value || '0.1',
+        };
+      }
     });
   } else {
     (state.autoLauncher?.snipeOrders || []).forEach(o => {
       if (o.walletId) {
         autoChecked.add(o.walletId);
-        autoAmounts[o.walletId] = o.amount;
+        autoAmounts[o.walletId] = o.amounts || {
+          us: o.amount || '0.05',
+          eth: state.autoLauncher?.pairAmounts?.eth || '0.005',
+          cn: state.autoLauncher?.pairAmounts?.cn || '0.1',
+          kr: state.autoLauncher?.pairAmounts?.kr || '0.1',
+        };
       }
     });
   }
 
+  const defPairAmounts = state.autoLauncher?.pairAmounts || { us: '0.05', eth: '0.005', cn: '0.1', kr: '0.1' };
+
   render('#auto-snipe-wallets-list', vaultWallets.map(w => {
     const bal = stockBalances[w.address.toLowerCase()] ?? '0';
     const checked = autoChecked.has(w.id);
-    const amt = autoAmounts[w.id] ?? '0.05';
+    const amt = autoAmounts[w.id] || defPairAmounts;
+    const amtUs = amt.us ?? defPairAmounts.us ?? '0.05';
+    const amtEth = amt.eth ?? defPairAmounts.eth ?? '0.005';
+    const amtCn = amt.cn ?? defPairAmounts.cn ?? '0.1';
+    const amtKr = amt.kr ?? defPairAmounts.kr ?? '0.1';
     return `
       <div class="item auto-snipe-wallet-row">
         <div class="snipe-row">
           <input type="checkbox" class="auto-snipe-checkbox" data-wallet-id="${esc(w.id)}" ${checked ? 'checked' : ''}>
           <div>
             <strong>🔒 ${esc(w.label)}</strong>
-            <small>${esc(short(w.address))} · Guthaben: <strong>${esc(bal)} ${isNative ? 'ETH' : '$' + esc(symbol)}</strong></small>
+            <small>${esc(short(w.address))} · ETH: <strong>${esc(w.balanceEth)}</strong></small>
           </div>
         </div>
-        <div class="item-actions">
-          <label class="snipe-label">Betrag:
-            <input type="text" inputmode="decimal" class="auto-snipe-amount-input snipe-amount" value="${esc(amt)}" placeholder="0.05">
+        <div class="auto-snipe-pair-inputs">
+          <label>🇺🇸 SPCX
+            <input type="text" inputmode="decimal" class="auto-snipe-amt-us snipe-amount" value="${esc(amtUs)}" placeholder="0.05">
+          </label>
+          <label>⟠ ETH
+            <input type="text" inputmode="decimal" class="auto-snipe-amt-eth snipe-amount" value="${esc(amtEth)}" placeholder="0.005">
+          </label>
+          <label>🇨🇳 BABA
+            <input type="text" inputmode="decimal" class="auto-snipe-amt-cn snipe-amount" value="${esc(amtCn)}" placeholder="0.1">
+          </label>
+          <label>🇰🇷 SKHY
+            <input type="text" inputmode="decimal" class="auto-snipe-amt-kr snipe-amount" value="${esc(amtKr)}" placeholder="0.1">
           </label>
         </div>
       </div>
@@ -745,9 +771,26 @@ if ($('#rotate-select-none')) {
   };
 }
 
+if ($('#auto-snipe-apply-all-btn')) {
+  $('#auto-snipe-apply-all-btn').onclick = () => {
+    const usVal = $('#auto-snipe-amount-us')?.value?.trim().replace(',', '.') || '0.05';
+    const ethVal = $('#auto-snipe-amount-eth')?.value?.trim().replace(',', '.') || '0.005';
+    const cnVal = $('#auto-snipe-amount-cn')?.value?.trim().replace(',', '.') || '0.1';
+    const krVal = $('#auto-snipe-amount-kr')?.value?.trim().replace(',', '.') || '0.1';
+    document.querySelectorAll('#auto-snipe-wallets-list .auto-snipe-wallet-row').forEach(row => {
+      const u = row.querySelector('.auto-snipe-amt-us'); if (u) u.value = usVal;
+      const e = row.querySelector('.auto-snipe-amt-eth'); if (e) e.value = ethVal;
+      const c = row.querySelector('.auto-snipe-amt-cn'); if (c) c.value = cnVal;
+      const k = row.querySelector('.auto-snipe-amt-kr'); if (k) k.value = krVal;
+    });
+    show('Standardbeträge auf alle ausgewählten Wallets übertragen.');
+  };
+}
+
 $('#auto-launcher-form').onsubmit = e => { e.preventDefault(); busy(e.submitter, async () => {
   const enabled = $('#auto-launcher-enabled').checked;
   const intervalMinutes = Number($('#auto-launcher-interval').value);
+  const intervalVarianceSeconds = Number($('#auto-launcher-variance')?.value || 0);
   const walletMode = $('#auto-wallet-mode-rotate').checked ? 'rotate' : 'single';
   const defaultWalletId = $('#auto-launcher-default-wallet').value;
   
@@ -759,16 +802,28 @@ $('#auto-launcher-form').onsubmit = e => { e.preventDefault(); busy(e.submitter,
     throw new Error('Bitte mindestens eine Wallet für die automatische Rotation auswählen.');
   }
 
+  const pairAmounts = {
+    us: $('#auto-snipe-amount-us')?.value?.trim().replace(',', '.') || '0.05',
+    eth: $('#auto-snipe-amount-eth')?.value?.trim().replace(',', '.') || '0.005',
+    cn: $('#auto-snipe-amount-cn')?.value?.trim().replace(',', '.') || '0.1',
+    kr: $('#auto-snipe-amount-kr')?.value?.trim().replace(',', '.') || '0.1',
+  };
+
   const snipeOrders = [];
   if ($('#auto-launcher-snipe-enabled').checked) {
     document.querySelectorAll('#auto-snipe-wallets-list .auto-snipe-wallet-row').forEach(row => {
       const cb = row.querySelector('.auto-snipe-checkbox');
       if (cb && cb.checked) {
         const walletId = cb.dataset.walletId;
-        const rawAmt = row.querySelector('.auto-snipe-amount-input')?.value;
-        const cleanAmt = String(rawAmt ?? '').trim().replace(',', '.');
-        const amount = Number(cleanAmt);
-        if (Number.isFinite(amount) && amount > 0) snipeOrders.push({ walletId, amount: cleanAmt });
+        const u = row.querySelector('.auto-snipe-amt-us')?.value?.trim().replace(',', '.') || pairAmounts.us;
+        const e = row.querySelector('.auto-snipe-amt-eth')?.value?.trim().replace(',', '.') || pairAmounts.eth;
+        const c = row.querySelector('.auto-snipe-amt-cn')?.value?.trim().replace(',', '.') || pairAmounts.cn;
+        const k = row.querySelector('.auto-snipe-amt-kr')?.value?.trim().replace(',', '.') || pairAmounts.kr;
+        snipeOrders.push({
+          walletId,
+          amount: u,
+          amounts: { us: u, eth: e, cn: c, kr: k },
+        });
       }
     });
   }
@@ -788,11 +843,21 @@ $('#auto-launcher-form').onsubmit = e => { e.preventDefault(); busy(e.submitter,
     ],
   };
 
-  await post('/auto-launcher/config', { enabled, intervalMinutes, walletMode, defaultWalletId, rotationWalletIds, snipeOrders, defaultMonitor });
+  await post('/auto-launcher/config', {
+    enabled,
+    intervalMinutes,
+    intervalVarianceSeconds,
+    walletMode,
+    defaultWalletId,
+    rotationWalletIds,
+    pairAmounts,
+    snipeOrders,
+    defaultMonitor
+  });
   autoLauncherFormInitialized = false;
   await refresh();
   show(enabled
-    ? `Automatischer Launch aktiviert (alle ${intervalMinutes} min, ${walletMode === 'rotate' ? `Rotation über ${rotationWalletIds.length} Wallets` : 'feste Wallet'}).`
+    ? `Automatischer Launch aktiviert (alle ${intervalMinutes} min ${intervalVarianceSeconds > 0 ? `± ${intervalVarianceSeconds} s` : ''}, ${walletMode === 'rotate' ? `Rotation über ${rotationWalletIds.length} Wallets` : 'feste Wallet'}).`
     : 'Automatischer Launch pausiert (Einstellungen gespeichert).');
 }); };
 
@@ -812,6 +877,27 @@ $('#notifications').onclick = () => busy($('#notifications'), async () => {
   $('#notification-status').textContent = result === 'granted' ? 'Desktop-Benachrichtigungen aktiv, solange dieser Tab geöffnet bleibt.' : 'Keine Desktop-Berechtigung. Alerts werden weiterhin lokal gespeichert.';
 });
 $('#read-alerts').onclick = () => busy($('#read-alerts'), async () => { await post('/alerts/read'); await refresh(); });
+if ($('#queue-sync-form')) {
+  $('#queue-sync-form').onsubmit = e => {
+    e.preventDefault();
+    busy(e.submitter, async () => {
+      const path = $('#queue-file-path').value.trim();
+      const res = await post('/queue/sync', { path });
+      show(`Queue erfolgreich synchronisiert (${res.count} Entwürfe aus ${res.path} eingelesen).`);
+      await refresh();
+    });
+  };
+}
+
+if ($('#queue-sync-now-btn')) {
+  $('#queue-sync-now-btn').onclick = () => busy($('#queue-sync-now-btn'), async () => {
+    const path = $('#queue-file-path')?.value.trim();
+    const res = await post('/queue/sync', { path });
+    show(`Queue neu eingelesen (${res.count} Entwürfe).`);
+    await refresh();
+  });
+}
+
 $('#queue-form').onsubmit = e => {
   e.preventDefault(); busy(e.submitter, async () => {
     const file = $('#queue-file').files[0];
@@ -983,6 +1069,197 @@ function renderDashboard(state, feeData) {
   }
 }
 
+function renderNextTokenCard(item, al) {
+  const card = $('#next-token-card');
+  if (!card) return;
+  if (!item) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+
+  const content = $('#next-token-content');
+  if (content && content.contains(document.activeElement)) {
+    return; // Keep user's focus/typing intact
+  }
+
+  const isRunning = al?.status === 'running';
+  const badge = $('#next-token-status-badge');
+  if (badge) {
+    if (isRunning) {
+      badge.textContent = 'Läuft gerade on-chain …';
+      badge.className = 'pill pill-active';
+    } else if (al?.enabled && al.countdownSeconds > 0) {
+      badge.textContent = `Auto-Start in ${al.countdownSeconds} s`;
+      badge.className = 'pill';
+    } else {
+      badge.textContent = 'Bereit (vor Launch editierbar)';
+      badge.className = 'pill';
+    }
+  }
+
+  const imgSrc = (item.id && item.imagePath) ? `/api/queue/${esc(item.id)}/image` : (item.image || '/favicon.svg');
+  const country = item.country || 'us';
+  const drop = item.charterDrop || '10%';
+  const pool = item.afterGraduates || 'only in its own pool';
+  const hook = item.hook || 'off';
+  const payout = item.payout || 'at exit';
+  const devBuy = item.devBuy || 'off';
+  const snipeTax = item.snipeTax || 'off';
+  const mcap = item.monitor?.rules?.[0]?.threshold || 150000;
+  const sellMode = item.monitor?.autoSellMode || 'all';
+  const assetName = item.imagePath ? item.imagePath.split('/').pop().split('\\').pop() : 'Kein lokales Bild';
+
+  content.innerHTML = `
+    <div class="next-token-grid">
+      <div>
+        <div class="next-token-art">
+          <img src="${imgSrc}" alt="${esc(item.name)}">
+        </div>
+        <p class="field-help monospace subtle">${esc(assetName)}</p>
+      </div>
+      <div>
+        <div class="fields two">
+          <label>Token-Name
+            <input type="text" id="next-token-name" value="${esc(item.name)}" ${isRunning ? 'disabled' : ''} maxlength="40" required>
+          </label>
+          <label>Symbol
+            <input type="text" id="next-token-symbol" value="${esc(item.symbol)}" ${isRunning ? 'disabled' : ''} maxlength="10" required>
+          </label>
+        </div>
+        <div class="fields two">
+          <label>Beschreibung
+            <input type="text" id="next-token-desc" value="${esc(item.description || '')}" ${isRunning ? 'disabled' : ''} maxlength="200">
+          </label>
+          <label>Website
+            <input type="url" id="next-token-website" value="${esc(item.website || '')}" ${isRunning ? 'disabled' : ''} placeholder="https://…">
+          </label>
+        </div>
+        <div class="fields three">
+          <label>Handelspaar
+            <select id="next-token-country" ${isRunning ? 'disabled' : ''}>
+              <option value="us" ${country === 'us' ? 'selected' : ''}>🇺🇸 US ($SPCX)</option>
+              <option value="eth" ${country === 'eth' ? 'selected' : ''}>⟠ ETH (ETH)</option>
+              <option value="cn" ${country === 'cn' ? 'selected' : ''}>🇨🇳 CN ($BABA)</option>
+              <option value="kr" ${country === 'kr' ? 'selected' : ''}>🇰🇷 KR ($SKHY)</option>
+            </select>
+          </label>
+          <label>Charter Drop
+            <select id="next-token-charterDrop" ${isRunning ? 'disabled' : ''}>
+              <option value="0%" ${drop === '0%' ? 'selected' : ''}>0%</option>
+              <option value="5%" ${drop === '5%' ? 'selected' : ''}>5%</option>
+              <option value="10%" ${(drop === '10%' || !drop) ? 'selected' : ''}>10% (Standard)</option>
+              <option value="15%" ${drop === '15%' ? 'selected' : ''}>15%</option>
+              <option value="20%" ${drop === '20%' ? 'selected' : ''}>20%</option>
+            </select>
+          </label>
+          <label>Liquidität nach Abschluss
+            <select id="next-token-pool" ${isRunning ? 'disabled' : ''}>
+              <option value="only in its own pool" ${pool !== 'uniswap v3' ? 'selected' : ''}>only in its own pool (Standard)</option>
+              <option value="uniswap v3" ${pool === 'uniswap v3' ? 'selected' : ''}>uniswap v3</option>
+            </select>
+          </label>
+        </div>
+        <div class="fields four">
+          <label>Hook Module
+            <select id="next-token-hook" ${isRunning ? 'disabled' : ''}>
+              <option value="off" ${hook !== 'on' ? 'selected' : ''}>off (Standard)</option>
+              <option value="on" ${hook === 'on' ? 'selected' : ''}>on</option>
+            </select>
+          </label>
+          <label>Payout
+            <select id="next-token-payout" ${isRunning ? 'disabled' : ''}>
+              <option value="at exit" ${payout !== 'instant' ? 'selected' : ''}>at exit (Standard)</option>
+              <option value="instant" ${payout === 'instant' ? 'selected' : ''}>instant</option>
+            </select>
+          </label>
+          <label>Dev Buy
+            <select id="next-token-devBuy" ${isRunning ? 'disabled' : ''}>
+              <option value="off" ${devBuy !== 'on' ? 'selected' : ''}>off (Standard)</option>
+              <option value="on" ${devBuy === 'on' ? 'selected' : ''}>on</option>
+            </select>
+          </label>
+          <label>Snipe Tax
+            <select id="next-token-snipeTax" ${isRunning ? 'disabled' : ''}>
+              <option value="off" ${snipeTax !== 'on' ? 'selected' : ''}>off (Standard)</option>
+              <option value="on" ${snipeTax === 'on' ? 'selected' : ''}>on</option>
+            </select>
+          </label>
+        </div>
+        <div class="fields two">
+          <label>Monitor Market Cap Trigger ($)
+            <input type="number" id="next-token-mcap" value="${mcap}" ${isRunning ? 'disabled' : ''} min="1000" step="5000">
+          </label>
+          <label>Auto-Sell Modus
+            <select id="next-token-sellMode" ${isRunning ? 'disabled' : ''}>
+              <option value="all" ${sellMode !== 'n_minus_1' ? 'selected' : ''}>Alle Wallets verkaufen (100%)</option>
+              <option value="n_minus_1" ${sellMode === 'n_minus_1' ? 'selected' : ''}>N-1 verkaufen (Moonbag behalten)</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="button" id="next-token-save-btn" class="button primary" ${isRunning ? 'disabled' : ''}>Änderungen für nächsten Launch speichern 💾</button>
+          <button type="button" id="next-token-trigger-btn" class="button secondary" ${isRunning ? 'disabled' : ''}>⚡ Jetzt genau diesen Launch ausführen</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const artImg = content.querySelector('.next-token-art img');
+  if (artImg) {
+    artImg.addEventListener('error', () => {
+      artImg.src = '/favicon.svg';
+    }, { once: true });
+  }
+
+  $('#next-token-save-btn').onclick = () => busy($('#next-token-save-btn'), async () => {
+    const name = $('#next-token-name').value.trim();
+    const symbol = $('#next-token-symbol').value.trim().toUpperCase();
+    const description = $('#next-token-desc').value.trim();
+    const website = $('#next-token-website').value.trim();
+    const country = $('#next-token-country').value;
+    const charterDrop = $('#next-token-charterDrop').value;
+    const afterGraduates = $('#next-token-pool').value;
+    const hook = $('#next-token-hook').value;
+    const payout = $('#next-token-payout').value;
+    const devBuy = $('#next-token-devBuy').value;
+    const snipeTax = $('#next-token-snipeTax').value;
+    const thresholdMcap = Number($('#next-token-mcap').value) || 150000;
+    const autoSellMode = $('#next-token-sellMode').value;
+
+    const updated = await api(`/queue/${item.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        name,
+        symbol,
+        description,
+        website,
+        country,
+        charterDrop,
+        afterGraduates,
+        hook,
+        payout,
+        devBuy,
+        snipeTax,
+        monitor: {
+          rules: [{ metric: 'marketCapUsd', operator: 'gte', threshold: thresholdMcap }],
+          autoSellMode,
+        }
+      })
+    });
+    show(`Änderungen für nächsten Launch „${updated.name}“ erfolgreich gespeichert.`);
+    await refresh();
+  });
+
+  $('#next-token-trigger-btn').onclick = () => busy($('#next-token-trigger-btn'), async () => {
+    const res = await post('/auto-launcher/trigger', {});
+    if (res.error) throw new Error(res.error);
+    if (res.skipped) show(`Übersprungen: ${res.skipped}`);
+    else show(`Launch ausgeführt: Token ${res.token} (TX: ${short(res.hash)})`);
+    await refresh();
+  });
+}
+
 async function refresh() {
   if (loadingState) return;
   loadingState = true;
@@ -1077,6 +1354,7 @@ async function refresh() {
       if (al.nextWallet) infoText += ` Nächste Launch-Wallet: 🔒 ${al.nextWallet.label} (${short(al.nextWallet.address)}).`;
       if (al.lastRunAt) infoText += ` Letzter Lauf: ${date(al.lastRunAt)}.`;
       if (al.lastSuccess) infoText += ` Zuletzt gelauncht: ${al.lastSuccess.name} (${short(al.lastSuccess.token)}).`;
+      if (al.intervalVarianceSeconds > 0) infoText += ` (Zufallsvarianz: ± ${al.intervalVarianceSeconds} s).`;
       if (al.lastError) infoText += ` Fehler: ${al.lastError}`;
       $('#auto-launcher-info').textContent = infoText;
 
@@ -1085,6 +1363,16 @@ async function refresh() {
         autoLauncherFormInitialized = true;
         $('#auto-launcher-enabled').checked = Boolean(al.enabled);
         $('#auto-launcher-interval').value = al.intervalMinutes || 5;
+        if ($('#auto-launcher-variance')) {
+          $('#auto-launcher-variance').value = al.intervalVarianceSeconds ?? 0;
+        }
+
+        if (al.pairAmounts) {
+          if ($('#auto-snipe-amount-us')) $('#auto-snipe-amount-us').value = al.pairAmounts.us || '0.05';
+          if ($('#auto-snipe-amount-eth')) $('#auto-snipe-amount-eth').value = al.pairAmounts.eth || '0.005';
+          if ($('#auto-snipe-amount-cn')) $('#auto-snipe-amount-cn').value = al.pairAmounts.cn || '0.1';
+          if ($('#auto-snipe-amount-kr')) $('#auto-snipe-amount-kr').value = al.pairAmounts.kr || '0.1';
+        }
 
         $('#auto-wallet-mode-rotate').checked = isRotate;
         $('#auto-wallet-mode-single').checked = !isRotate;
@@ -1158,6 +1446,25 @@ async function refresh() {
     $('#alert-count').textContent = state.alerts.filter(a => !a.read).length;
     $('#draft-count').textContent = `${state.drafts.length} Entwürfe`;
     $('#queue-count').textContent = state.queue?.length ?? 0;
+
+    // Render Next Token Teaser Card
+    renderNextTokenCard(state.queue?.[0], al);
+
+    // Queue CSV Sync status
+    try {
+      const syncInfo = await api('/queue/sync');
+      if (syncInfo && document.activeElement !== $('#queue-file-path')) {
+        if ($('#queue-file-path')) $('#queue-file-path').value = syncInfo.path || 'examples/launch-queue.csv';
+        if ($('#queue-sync-badge')) {
+          $('#queue-sync-badge').textContent = syncInfo.error ? 'Fehler' : 'Live synchronisiert';
+          $('#queue-sync-badge').className = `pill ${syncInfo.error ? 'offline' : 'pill-active'}`;
+        }
+        if ($('#queue-sync-info')) {
+          const syncTime = syncInfo.lastSyncAt ? date(syncInfo.lastSyncAt) : 'noch nicht synchronisiert';
+          $('#queue-sync-info').textContent = `Dateipfad: ${syncInfo.path} · Zuletzt eingelesen: ${syncTime} (${syncInfo.count} Entwürfe in Queue)${syncInfo.error ? ` · Fehler: ${syncInfo.error}` : ''}`;
+        }
+      }
+    } catch {}
 
     // Render Queue with vault indicator
     render('#queue', state.queue?.length ? state.queue.map((q, index) => {
@@ -1296,24 +1603,36 @@ document.addEventListener('click', e => {
       $('#monitor-form button[type="submit"]').textContent = 'Änderungen speichern →';
       show('Monitor wird bearbeitet. Speichern setzt Kursbasis und bisherigen Auslösezustand zurück.');
       $('#monitor-form').scrollIntoView({ behavior: 'smooth' });
-    } else if (action === 'claim-fees') {
-      const curve = button.dataset.curve;
-      const swapToEth = $('#dash-global-autoswap') ? $('#dash-global-autoswap').checked : true;
-      const res = await post('/fees/claim', { curve, swapToEth });
-      if (res.swapResult?.swapped) {
-        show(`Erfolgreich ${res.claimedAmount || ''} ${res.stockSymbol || 'SPCX'} geclaimt und direkt in ${res.swapResult.ethReceived || ''} ETH umgetauscht! (TX: ${short(res.hash)})`);
-      } else {
-        show(`Erfolgreich ${res.claimedAmount || ''} ${res.stockSymbol || 'SPCX'} Gebühren abgeholt! TX: ${res.hash}`);
-      }
-    } else if (action === 'claim-wallet-fees') {
-      const walletAddress = button.dataset.wallet;
-      const swapToEth = $('#dash-global-autoswap') ? $('#dash-global-autoswap').checked : true;
-      const res = await post('/fees/claim', { walletAddress, swapToEth });
-      if (res.success) {
-        const count = res.results?.length || 0;
-        show(`Erfolgreich alle Gebühren für ${short(walletAddress)} (${count} Token) abgeholt${swapToEth ? ' und direkt in ETH getauscht' : ''}!`);
-      } else {
-        show(`Gebühren-Abholung abgeschlossen: ${JSON.stringify(res)}`);
+    } else if (action === 'claim-fees' || action === 'claim-wallet-fees') {
+      const origHtml = button.innerHTML;
+      const allClaimButtons = Array.from(document.querySelectorAll('[data-action^="claim-"]'));
+      allClaimButtons.forEach(b => b.disabled = true);
+      button.innerHTML = '<span class="claim-spinner">⏳</span> Wird geclaimt …';
+      show('Gebühren werden on-chain abgeholt und verarbeitet. Bitte einen Moment Geduld …');
+      try {
+        if (action === 'claim-fees') {
+          const curve = button.dataset.curve;
+          const swapToEth = $('#dash-global-autoswap') ? $('#dash-global-autoswap').checked : true;
+          const res = await post('/fees/claim', { curve, swapToEth });
+          if (res.swapResult?.swapped) {
+            show(`Erfolgreich ${res.claimedAmount || ''} ${res.stockSymbol || 'SPCX'} geclaimt und direkt in ${res.swapResult.ethReceived || ''} ETH umgetauscht! (TX: ${short(res.hash)})`);
+          } else {
+            show(`Erfolgreich ${res.claimedAmount || ''} ${res.stockSymbol || 'SPCX'} Gebühren abgeholt! TX: ${res.hash}`);
+          }
+        } else if (action === 'claim-wallet-fees') {
+          const walletAddress = button.dataset.wallet;
+          const swapToEth = $('#dash-global-autoswap') ? $('#dash-global-autoswap').checked : true;
+          const res = await post('/fees/claim', { walletAddress, swapToEth });
+          if (res.success) {
+            const count = res.results?.length || 0;
+            show(`Erfolgreich alle Gebühren für ${short(walletAddress)} (${count} Token) abgeholt${swapToEth ? ' und direkt in ETH getauscht' : ''}!`);
+          } else {
+            show(`Gebühren-Abholung abgeschlossen: ${JSON.stringify(res)}`);
+          }
+        }
+      } finally {
+        button.innerHTML = origHtml;
+        allClaimButtons.forEach(b => b.disabled = false);
       }
     } else if (action === 'delete-launch') {
       const hash = button.dataset.hash;

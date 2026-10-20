@@ -14,6 +14,7 @@ export function createAutoLauncher({
   state.autoLauncher ??= {
     enabled: false,
     intervalMinutes: 5,
+    intervalVarianceSeconds: 0,
     walletMode: 'single', // 'single' | 'rotate'
     defaultWalletId: '',
     rotationWalletIds: [],
@@ -25,6 +26,12 @@ export function createAutoLauncher({
     lastSuccess: null,
     inFlightTx: null,
     snipeOrders: [],
+    pairAmounts: {
+      us: '0.05',
+      eth: '0.005',
+      cn: '0.1',
+      kr: '0.1'
+    },
     defaultMonitor: {
       enabled: true,
       mode: 'any',
@@ -38,9 +45,16 @@ export function createAutoLauncher({
       ]
     }
   };
+  state.autoLauncher.intervalVarianceSeconds ??= 0;
   state.autoLauncher.walletMode ??= 'single';
   state.autoLauncher.rotationWalletIds ??= [];
   state.autoLauncher.rotationIndex ??= 0;
+  state.autoLauncher.pairAmounts ??= {
+    us: '0.05',
+    eth: '0.005',
+    cn: '0.1',
+    kr: '0.1'
+  };
   state.autoLauncher.defaultMonitor ??= {
     enabled: true,
     mode: 'any',
@@ -55,6 +69,16 @@ export function createAutoLauncher({
   };
 
   let inProgress = false;
+
+  function getNextDelayMs(al) {
+    const baseSec = Math.max(1, al.intervalMinutes || 5) * 60;
+    const varianceSec = Math.max(0, al.intervalVarianceSeconds || 0);
+    if (varianceSec > 0) {
+      const offset = Math.floor(Math.random() * (varianceSec * 2 + 1)) - varianceSec;
+      return Math.max(5, baseSec + offset) * 1000;
+    }
+    return baseSec * 1000;
+  }
 
   function peekNextWallet() {
     const al = state.autoLauncher;
@@ -90,6 +114,7 @@ export function createAutoLauncher({
     return {
       enabled: Boolean(al.enabled),
       intervalMinutes: al.intervalMinutes ?? 5,
+      intervalVarianceSeconds: al.intervalVarianceSeconds ?? 0,
       walletMode: al.walletMode ?? 'single',
       defaultWalletId: al.defaultWalletId ?? '',
       rotationWalletIds: Array.isArray(al.rotationWalletIds) ? al.rotationWalletIds : [],
@@ -105,14 +130,18 @@ export function createAutoLauncher({
       countdownSeconds,
       queueLength: state.queue?.length ?? 0,
       snipeOrders: al.snipeOrders ?? [],
+      pairAmounts: al.pairAmounts ?? { us: '0.05', eth: '0.005', cn: '0.1', kr: '0.1' },
       defaultMonitor: al.defaultMonitor ?? { enabled: true },
     };
   }
 
-  function configure({ enabled, intervalMinutes, walletMode, defaultWalletId, rotationWalletIds, snipeOrders, defaultMonitor }) {
+  function configure({ enabled, intervalMinutes, intervalVarianceSeconds, walletMode, defaultWalletId, rotationWalletIds, snipeOrders, pairAmounts, defaultMonitor }) {
     const al = state.autoLauncher;
     if (typeof intervalMinutes === 'number' && Number.isFinite(intervalMinutes) && intervalMinutes >= 1) {
       al.intervalMinutes = Math.min(1440, Math.max(1, Math.round(intervalMinutes)));
+    }
+    if (typeof intervalVarianceSeconds === 'number' && Number.isFinite(intervalVarianceSeconds) && intervalVarianceSeconds >= 0) {
+      al.intervalVarianceSeconds = Math.min(3600, Math.max(0, Math.round(intervalVarianceSeconds)));
     }
     if (walletMode === 'single' || walletMode === 'rotate') {
       al.walletMode = walletMode;
@@ -125,6 +154,14 @@ export function createAutoLauncher({
       if (al.rotationIndex >= al.rotationWalletIds.length) {
         al.rotationIndex = 0;
       }
+    }
+    if (pairAmounts && typeof pairAmounts === 'object') {
+      al.pairAmounts = {
+        us: String(pairAmounts.us ?? al.pairAmounts?.us ?? '0.05').trim().replace(',', '.'),
+        eth: String(pairAmounts.eth ?? al.pairAmounts?.eth ?? '0.005').trim().replace(',', '.'),
+        cn: String(pairAmounts.cn ?? al.pairAmounts?.cn ?? '0.1').trim().replace(',', '.'),
+        kr: String(pairAmounts.kr ?? al.pairAmounts?.kr ?? '0.1').trim().replace(',', '.')
+      };
     }
     if (Array.isArray(snipeOrders)) {
       al.snipeOrders = snipeOrders.slice(0, 10);
@@ -208,7 +245,7 @@ export function createAutoLauncher({
         : `Keine passende Wallet im Tresor für Eintrag „${item.name}“ (gesucht: ${item.wallet || 'Standard-Wallet'}).`;
       al.status = 'error';
       al.lastError = err;
-      al.nextRunAt = Date.now() + (al.intervalMinutes || 5) * 60 * 1000;
+      al.nextRunAt = Date.now() + getNextDelayMs(al);
       state.alerts.unshift({
         id: randomUUID(),
         name: 'Auto-Launcher Fehler',
@@ -331,11 +368,19 @@ export function createAutoLauncher({
 
         if (typeof snipeFn === 'function' && Array.isArray(al.snipeOrders) && al.snipeOrders.length > 0 && result.curve) {
           try {
+            const country = item.country || 'us';
+            const effectiveSnipeOrders = al.snipeOrders.map(order => {
+              const pairAmt = order.amounts?.[country] ?? order.amount ?? al.pairAmounts?.[country] ?? '0.05';
+              return {
+                ...order,
+                amount: pairAmt,
+              };
+            });
             const snipeRes = await snipeFn({
               curve: result.curve,
               token: result.token,
               country: item.country,
-              snipeOrders: al.snipeOrders,
+              snipeOrders: effectiveSnipeOrders,
               antiFrontrun: true,
               vault,
             });
@@ -401,7 +446,7 @@ export function createAutoLauncher({
       al.inFlightTx = null;
       if (al.enabled) {
         al.status = al.lastError ? 'error' : 'idle';
-        al.nextRunAt = Date.now() + Math.max(1, al.intervalMinutes || 5) * 60 * 1000;
+        al.nextRunAt = Date.now() + getNextDelayMs(al);
       } else {
         if (al.status !== 'paused_insufficient_funds') {
           al.status = 'idle';
