@@ -43,19 +43,35 @@ function updateFastPoller() {
 
 try { pendingHash = localStorage.getItem('standard:pending-launch'); updateFastPoller(); } catch {}
 
+let noticeTimer = null;
 function show(message, error = false) {
   for (const el of [$('#notice'), $('#launch-feedback')]) {
     if (!el) continue;
     el.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:14px;">
         <div style="flex:1;">${error ? '🚨 <strong>Fehler:</strong> ' : '✅ <strong>Info:</strong> '}${esc(message)}</div>
-        <button type="button" class="icon-button" onclick="this.closest('.notice').hidden=true" style="font-size:16px; line-height:1; padding:2px 6px; cursor:pointer;" title="Meldung schließen">✕</button>
+        <button type="button" class="icon-button" data-action="close-notice" style="font-size:18px; line-height:1; padding:2px 8px; cursor:pointer; min-height:unset;" title="Meldung schließen" aria-label="Meldung schließen">✕</button>
       </div>
     `;
     el.classList.toggle('is-error', error);
     el.hidden = false;
   }
+  clearTimeout(noticeTimer);
+  if (!error) {
+    noticeTimer = setTimeout(() => {
+      const n = $('#notice');
+      if (n) n.hidden = true;
+    }, 6000);
+  }
 }
+
+document.addEventListener('click', (e) => {
+  const closeBtn = e.target.closest('[data-action="close-notice"]');
+  if (closeBtn) {
+    const noticeEl = closeBtn.closest('.notice');
+    if (noticeEl) noticeEl.hidden = true;
+  }
+});
 
 function render(selector, html) { const el = $(selector); if (el && el.innerHTML !== html) el.innerHTML = html; }
 
