@@ -16,7 +16,7 @@
     <div class="side-bottom"><span class="status-dot"></span> Robinhood Chain<small>Chain ID 4663 · Mainnet</small><a href="https://www.standardreserve.xyz/liquidity/" target="_blank" rel="noopener noreferrer">Standard Reserve öffnen ↗</a></div>
   </aside>
   <div class="workspace">
-    <header class="topbar"><div><span class="breadcrumb">WORKSPACE /</span> <span id="page-label">Token launchen</span></div><div class="top-actions"><button id="vault-topbar-toggle-btn" class="button mini secondary" type="button">Tresor sperren 🔒</button><span id="vault-status-pill" class="pill">Tresor: Laden …</span><span id="connection-status" class="pill">Server verbinden …</span><select id="provider" aria-label="Wallet-Anbieter"><option value="">Browser-Wallet</option></select><button id="connect" class="button secondary">Wallet verbinden ↗</button></div></header>
+    <header class="topbar"><div><span class="breadcrumb">WORKSPACE /</span> <span id="page-label">Token launchen</span></div><div class="top-actions"><button id="vault-status-pill" class="pill pill-button" type="button" title="Klicken zum Sperren oder Entsperren">Tresor: Laden …</button><span id="connection-status" class="pill">Server verbinden …</span><select id="provider" aria-label="Wallet-Anbieter"><option value="">Browser-Wallet</option></select><button id="connect" class="button secondary">Wallet verbinden ↗</button></div></header>
     <main>
       <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
       <section id="page-dashboard" class="page" hidden>
@@ -405,7 +405,28 @@
         <div class="monitor-layout"><form id="wallet-form" class="panel"><h2>Öffentliche Adresse merken</h2><label>Name<input name="label" placeholder="z. B. Externe Wallet" maxlength="60" required></label><label>Öffentliche Adresse<input name="address" id="new-wallet-address" placeholder="0x…" required autocomplete="off" spellcheck="false"></label><button type="button" id="use-connected" class="text-button">Verbundene Adresse übernehmen</button><div class="form-actions"><button type="submit" class="button primary">Adresse speichern →</button></div></form><section class="panel compact"><p class="eyebrow">SIGNATUR IN DEINER WALLET</p><h2>Beobachtungs-Modus</h2><p class="muted">Diese Adressen enthalten keinen Private Key. Für einen Launch damit verbindest du die passende Browser-Wallet und bestätigst die Transaktion dort.</p></section></div>
         <div id="wallets" class="panel item-list"></div>
       </section>
-      <section id="page-alerts" class="page" hidden><div class="page-heading"><div><p class="eyebrow">DEIN EREIGNISPROTOKOLL</p><h1>Wenn es darauf ankommt.</h1><p>Ausgelöste Regeln, Kennzahlen und Zeitpunkte – lokal gespeichert.</p></div><button id="read-alerts" class="button secondary">Alle als gelesen markieren</button></div><div id="alerts" class="panel item-list"></div></section>
+      <section id="page-alerts" class="page" hidden>
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">DEIN EREIGNISPROTOKOLL</p>
+            <h1>Wenn es darauf ankommt.</h1>
+            <p>Ausgelöste Regeln, Kennzahlen und Zeitpunkte – lokal gespeichert.</p>
+          </div>
+          <div class="item-actions">
+            <button id="read-alerts" class="button secondary">Alle als gelesen markieren</button>
+          </div>
+        </div>
+        <div class="panel compact alert-filter-panel">
+          <div class="alert-filter-bar">
+            <button type="button" class="alert-filter-btn active" data-filter="all">Alle</button>
+            <button type="button" class="alert-filter-btn" data-filter="error">🚨 Fehler</button>
+            <button type="button" class="alert-filter-btn" data-filter="warning">⚠️ Warnungen</button>
+            <button type="button" class="alert-filter-btn" data-filter="success">✅ Erfolge</button>
+            <button type="button" class="alert-filter-btn" data-filter="info">ℹ️ Infos</button>
+          </div>
+        </div>
+        <div id="alerts" class="panel item-list"></div>
+      </section>
       <footer><span>STANDARD / INDEPENDENT LAUNCH CONSOLE</span><span>Lokale Daten · Verschlüsselter Tresor · Auto-Launcher · Alert-only Monitoring</span></footer>
     </main>
   </div>

@@ -47,11 +47,13 @@ test('auto launcher requires unlocked vault and matching wallet', async () => {
 
   const launcher = createAutoLauncher({ store, vault, executeLaunch, inspectLaunch });
 
-  // 1. When locked, fails gracefully
+  // 1. When locked, fails gracefully and records alert
   vault.lock();
   const lockedRes = await launcher.executeNext();
   assert.match(lockedRes.error, /gesperrt/);
   assert.equal(store.state.queue.length, 1); // Not shifted
+  assert.equal(store.state.alerts.length, 1);
+  assert.equal(store.state.alerts[0].category, 'warning');
 
   // 2. Unlock vault and run
   vault.unlock('masterpass123');
@@ -60,7 +62,7 @@ test('auto launcher requires unlocked vault and matching wallet', async () => {
   assert.equal(executed, true);
   assert.equal(store.state.queue.length, 0); // Shifted
   assert.equal(store.state.launches.length, 1);
-  assert.equal(store.state.alerts.length, 1);
+  assert.equal(store.state.alerts.length, 2);
   assert.equal(store.state.autoLauncher.status, 'idle');
 });
 

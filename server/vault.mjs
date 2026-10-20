@@ -27,7 +27,7 @@ function decrypt({ iv, tag, ciphertext }, key) {
   return plain;
 }
 
-export function createVault({ store, autoLockMs = DEFAULT_AUTO_LOCK_MS } = {}) {
+export function createVault({ store, autoLockMs = DEFAULT_AUTO_LOCK_MS, isKeepAliveActive } = {}) {
   const state = store.state;
   state.vault ??= {
     initialized: false,
@@ -40,8 +40,15 @@ export function createVault({ store, autoLockMs = DEFAULT_AUTO_LOCK_MS } = {}) {
   let autoLockTimer = null;
 
   function resetAutoLock() {
-    if (autoLockTimer) clearTimeout(autoLockTimer);
+    if (autoLockTimer) {
+      clearTimeout(autoLockTimer);
+      autoLockTimer = null;
+    }
     if (unlockedKey && autoLockMs > 0) {
+      // If a background operation requires the vault to stay unlocked (e.g. active automated queue), defer locking
+      if (typeof isKeepAliveActive === 'function' && isKeepAliveActive()) {
+        return;
+      }
       autoLockTimer = setTimeout(() => lock(), autoLockMs);
       if (typeof autoLockTimer.unref === 'function') autoLockTimer.unref();
     }

@@ -231,10 +231,21 @@ export function createAutoLauncher({
       return { skipped: 'Queue ist leer' };
     }
     if (!vault.isUnlocked()) {
-      al.status = 'error';
-      al.lastError = 'Tresor ist gesperrt. Bitte mit Master-Passwort entsperren.';
+      al.enabled = false;
+      al.status = 'paused_vault_locked';
+      al.lastError = 'Queue angehalten: Der Tresor ist gesperrt. Bitte mit Master-Passwort entsperren und Queue fortsetzen.';
+      al.nextRunAt = null;
+      state.alerts.unshift({
+        id: randomUUID(),
+        category: 'warning',
+        name: 'Queue angehalten: Tresor gesperrt 🔒',
+        message: 'Die automatische Queue wurde angehalten, da der Tresor gesperrt ist. Bitte den Tresor in der Titelleiste entsperren und die Queue reaktivieren.',
+        at: Date.now(),
+        token: '0x0000000000000000000000000000000000000000',
+        metrics: {},
+      });
       store.save();
-      return { error: al.lastError };
+      return { error: al.lastError, paused: true };
     }
 
     const item = state.queue[0];
@@ -248,6 +259,7 @@ export function createAutoLauncher({
       al.nextRunAt = Date.now() + getNextDelayMs(al);
       state.alerts.unshift({
         id: randomUUID(),
+        category: 'error',
         name: 'Auto-Launcher Fehler',
         message: err,
         at: Date.now(),
@@ -329,6 +341,7 @@ export function createAutoLauncher({
         al.lastError = null;
         state.alerts.unshift({
           id: randomUUID(),
+          category: 'success',
           name: `Auto-Launch: ${item.name}`,
           message: `Token erfolgreich auf Robinhood Chain gelauncht: ${result.token}`,
           at: Date.now(),
@@ -353,6 +366,7 @@ export function createAutoLauncher({
               if (createdMon) {
                 state.alerts.unshift({
                   id: randomUUID(),
+                  category: 'info',
                   name: `Auto-Monitor aktiv: ${item.name}`,
                   message: `Monitoring für ${result.token} sofort gestartet (${createdMon.rules?.length || 1} Trigger-Regeln).`,
                   at: Date.now(),
@@ -392,6 +406,7 @@ export function createAutoLauncher({
             for (const s of snipeRes) {
               state.alerts.unshift({
                 id: randomUUID(),
+                category: s.status === 'success' ? 'success' : 'error',
                 name: s.status === 'success' ? `Auto-Snipe: ${s.label}` : `Auto-Snipe Fehler: ${s.label || 'Wallet'}`,
                 message: s.status === 'success'
                   ? `${s.amount} ${s.currency} erfolgreich gekauft (TX: ${s.hash}).`
@@ -421,6 +436,7 @@ export function createAutoLauncher({
         al.nextRunAt = null;
         state.alerts.unshift({
           id: randomUUID(),
+          category: 'warning',
           name: `Queue angehalten: Guthaben unzureichend (${wallet.label})`,
           message: `Die automatische Queue wurde angehalten: Wallet ${wallet.label} (${wallet.address}) hat nicht genügend ETH für Launch-Gebühr und Gas. Bitte Guthaben aufladen und Queue reaktivieren.`,
           at: Date.now(),
@@ -434,6 +450,7 @@ export function createAutoLauncher({
       al.lastError = err.message;
       state.alerts.unshift({
         id: randomUUID(),
+        category: 'error',
         name: `Auto-Launch Fehler (${item.name})`,
         message: err.message,
         at: Date.now(),
@@ -448,7 +465,7 @@ export function createAutoLauncher({
         al.status = al.lastError ? 'error' : 'idle';
         al.nextRunAt = Date.now() + getNextDelayMs(al);
       } else {
-        if (al.status !== 'paused_insufficient_funds') {
+        if (al.status !== 'paused_insufficient_funds' && al.status !== 'paused_vault_locked') {
           al.status = 'idle';
         }
         al.nextRunAt = null;
@@ -461,6 +478,23 @@ export function createAutoLauncher({
     if (inProgress) return;
     const al = state.autoLauncher;
     if (!al.enabled) return;
+    if (!vault.isUnlocked()) {
+      al.enabled = false;
+      al.status = 'paused_vault_locked';
+      al.lastError = 'Queue angehalten: Der Tresor wurde gesperrt.';
+      al.nextRunAt = null;
+      state.alerts.unshift({
+        id: randomUUID(),
+        category: 'warning',
+        name: 'Queue angehalten: Tresor gesperrt 🔒',
+        message: 'Die automatische Queue wurde angehalten, da der Tresor gesperrt wurde. Bitte den Tresor in der Titelleiste entsperren und die Queue reaktivieren.',
+        at: Date.now(),
+        token: '0x0000000000000000000000000000000000000000',
+        metrics: {},
+      });
+      store.save();
+      return;
+    }
     if (al.nextRunAt && Date.now() >= al.nextRunAt) {
       await executeNext(false);
     }

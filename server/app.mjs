@@ -31,7 +31,10 @@ export function createApp({
   claimFeesFn = executeClaimFees,
 } = {}) {
   const store = createStore(dataDir), state = store.state;
-  const vault = createVault({ store });
+  const vault = createVault({
+    store,
+    isKeepAliveActive: () => Boolean(state.autoLauncher?.enabled && (state.queue?.length > 0 || state.autoLauncher?.status === 'running'))
+  });
 
   let polling = false, timer;
 
@@ -82,6 +85,7 @@ export function createApp({
                     const keptWallet = sellRes.find(r => r.status === 'kept_best_entry');
                     state.alerts.unshift({
                       id: randomUUID(),
+                      category: 'success',
                       name: `Auto-Sell ausgeführt: ${monitorName}`,
                       message: `Trigger ausgelöst! ${soldCount} von ${targetPurchases.length} Wallets haben ihre Token verkauft.${keptWallet ? ` (Wallet „${keptWallet.label}“ mit bestem Einstieg als Moonbag behalten).` : ''}`,
                       at: Date.now(),
@@ -93,6 +97,7 @@ export function createApp({
                     console.error('Auto-sell execution error:', se);
                     state.alerts.unshift({
                       id: randomUUID(),
+                      category: 'error',
                       name: `Auto-Sell Fehler: ${monitorName}`,
                       message: `Automatischer Verkauf fehlgeschlagen: ${se.message}`,
                       at: Date.now(),
@@ -167,6 +172,7 @@ export function createApp({
     onSync: ({ count, path }) => {
       state.alerts.unshift({
         id: randomUUID(),
+        category: 'info',
         name: 'CSV-Queue synchronisiert',
         message: `${count} Entwürfe aus ${path} eingelesen.`,
         at: Date.now(),

@@ -22,6 +22,16 @@ let lastWalletChoiceSig = '';
 const alerted = new Set();
 let booted = false;
 let fastPoller = null;
+let activeAlertFilter = 'all';
+
+function getAlertCategory(a) {
+  if (a.category) return a.category;
+  const str = `${a.name || ''} ${a.message || ''}`.toLowerCase();
+  if (str.includes('fehler') || str.includes('error') || str.includes('reverted') || str.includes('fehlgeschlagen')) return 'error';
+  if (str.includes('angehalten') || str.includes('warnung') || str.includes('warning') || str.includes('abgebrochen') || str.includes('unzureichend') || str.includes('gesperrt')) return 'warning';
+  if (str.includes('erfolgreich') || str.includes('auto-launch:') || str.includes('ausgeführt')) return 'success';
+  return 'info';
+}
 function updateFastPoller() {
   if (pendingHash && !fastPoller) {
     fastPoller = setInterval(() => { void checkReceipt(); }, 350);
@@ -877,6 +887,14 @@ $('#notifications').onclick = () => busy($('#notifications'), async () => {
   $('#notification-status').textContent = result === 'granted' ? 'Desktop-Benachrichtigungen aktiv, solange dieser Tab geöffnet bleibt.' : 'Keine Desktop-Berechtigung. Alerts werden weiterhin lokal gespeichert.';
 });
 $('#read-alerts').onclick = () => busy($('#read-alerts'), async () => { await post('/alerts/read'); await refresh(); });
+
+document.querySelectorAll('.alert-filter-btn').forEach(btn => {
+  btn.onclick = () => {
+    activeAlertFilter = btn.dataset.filter || 'all';
+    document.querySelectorAll('.alert-filter-btn').forEach(b => b.classList.toggle('active', b === btn));
+    void refresh();
+  };
+});
 if ($('#queue-sync-form')) {
   $('#queue-sync-form').onsubmit = e => {
     e.preventDefault();
@@ -1275,30 +1293,21 @@ async function refresh() {
       vaultWallets = [];
     }
 
-    // Topbar vault pill
+    // Topbar vault status / toggle button
     const vPill = $('#vault-status-pill');
-    if (!vaultStatus.initialized) {
-      vPill.textContent = 'Tresor: Nicht eingerichtet 🔒';
-      vPill.className = 'pill offline';
-    } else if (!vaultStatus.unlocked) {
-      vPill.textContent = 'Tresor: Gesperrt 🔒';
-      vPill.className = 'pill offline';
-    } else {
-      vPill.textContent = `Tresor: Entsperrt 🔓 (${vaultWallets.length})`;
-      vPill.className = 'pill';
-    }
-
-    const vToggleBtn = $('#vault-topbar-toggle-btn');
-    if (vToggleBtn) {
+    if (vPill) {
       if (!vaultStatus.initialized) {
-        vToggleBtn.textContent = 'Tresor einrichten 🔒';
-        vToggleBtn.classList.remove('pill-active');
-      } else if (vaultStatus.unlocked) {
-        vToggleBtn.textContent = 'Tresor sperren 🔒';
-        vToggleBtn.classList.remove('pill-active');
+        vPill.textContent = '🔒 Tresor einrichten ➔';
+        vPill.className = 'pill offline pill-button';
+        vPill.title = 'Klicken, um den Tresor mit Master-Passwort einzurichten';
+      } else if (!vaultStatus.unlocked) {
+        vPill.textContent = '🔒 Tresor gesperrt · Entsperren ➔';
+        vPill.className = 'pill offline pill-button';
+        vPill.title = 'Klicken, um den Tresor mit Master-Passwort zu entsperren';
       } else {
-        vToggleBtn.textContent = 'Tresor entsperren 🔓';
-        vToggleBtn.classList.add('pill-active');
+        vPill.textContent = `🔓 Tresor entsperrt (${vaultWallets.length}) · Sperren`;
+        vPill.className = 'pill pill-active pill-button';
+        vPill.title = 'Klicken, um den Tresor jetzt manuell zu sperren';
       }
     }
 
@@ -1332,6 +1341,9 @@ async function refresh() {
       let badgeClass = 'pill offline';
       if (al.status === 'paused_insufficient_funds') {
         badgeText = 'Pausiert: Guthaben fehlt ⚠️';
+        badgeClass = 'pill offline';
+      } else if (al.status === 'paused_vault_locked') {
+        badgeText = 'Pausiert: Tresor gesperrt 🔒';
         badgeClass = 'pill offline';
       } else if (al.status === 'running') {
         badgeText = 'Läuft …'; badgeClass = 'pill';
@@ -1543,7 +1555,40 @@ async function refresh() {
       return `<article class="panel monitor-card"><div class="monitor-title"><h2>${esc(m.name)}</h2>${sellBadge}<span class="pill ${!m.enabled || m.error ? 'offline' : ''}">${m.error ? 'Datenfehler' : m.enabled ? 'Aktiv' : 'Pausiert'}</span></div><p class="address">${esc(m.token)}</p><div class="metrics"><div><small>MARKET CAP</small><strong>${money(s?.marketCapUsd)}</strong></div><div><small>VOLUMEN · 24 H</small><strong>${money(s?.volume24hUsd)}</strong></div><div><small>LIQUIDITÄT</small><strong>${money(s?.liquidityUsd)}</strong></div><div><small>PREIS</small><strong>${money(s?.priceUsd)}</strong></div></div><div class="rule-summary">${m.rules.map(r => `${metricLabels[r.metric]} ${r.operator === 'gte' ? '≥' : '≤'} ${esc(r.threshold)}`).join(m.mode === 'all' ? '<br>UND ' : '<br>ODER ')}<br><span class="subtle">${m.holdSeconds} s Haltezeit · ${m.once ? 'Einmalig' : `${m.cooldownSeconds} s Cooldown`}</span></div>${creatorHtml}${feeHtml}${purchasesHtml}${sellResultsHtml}${m.error ? `<p class="error">${esc(m.error)}</p>` : ''}<p class="subtle">Datenstand: ${date(s?.asOfTime ? s.asOfTime * 1000 : null)}</p><div class="item-actions"><button class="text-button" data-action="toggle" data-id="${m.id}">${m.enabled ? 'Pausieren' : 'Fortsetzen'}</button><button class="text-button" data-action="edit-monitor" data-id="${m.id}">Bearbeiten</button><button class="text-button" data-action="rearm" data-id="${m.id}">Neu scharfstellen</button><button class="text-button" data-action="delete-monitors" data-id="${m.id}">Entfernen</button></div></article>`;
     }).join('') : '<div class="panel empty">Noch keine Monitore aktiv. Füge eine Token-Adresse und deine erste Trigger-Regel hinzu.</div>');
 
-    render('#alerts', state.alerts.length ? state.alerts.map(a => `<article class="item ${a.read ? '' : 'alert-unread'}"><div><strong>◇ ${esc(a.name)}</strong><small>${esc(a.message)}</small><div class="alert-details">${esc(date(a.at))} · Market Cap ${money(a.metrics.marketCapUsd)} · Volumen 24 h ${money(a.metrics.volume24hUsd)}<br>${esc(a.token)}</div></div><span class="pill">${a.read ? 'Gelesen' : 'Neu'}</span></article>`).join('') : '<div class="empty">Alles ruhig. Sobald eine Regel auslöst, findest du den Alert mit Zeitstempel und Kennzahlen hier.</div>');
+    const filteredAlerts = activeAlertFilter === 'all'
+      ? state.alerts
+      : state.alerts.filter(a => getAlertCategory(a) === activeAlertFilter);
+
+    render('#alerts', filteredAlerts.length ? filteredAlerts.map(a => {
+      const cat = getAlertCategory(a);
+      const catCfg = {
+        error: { label: 'Fehler', icon: '🚨', pill: 'pill-danger', item: 'alert-item-error' },
+        warning: { label: 'Warnung', icon: '⚠️', pill: 'pill-warning', item: 'alert-item-warning' },
+        success: { label: 'Erfolg', icon: '✅', pill: 'pill-success', item: 'alert-item-success' },
+        info: { label: 'Info', icon: 'ℹ️', pill: 'pill-info', item: 'alert-item-info' },
+      }[cat] || { label: 'Info', icon: 'ℹ️', pill: 'pill-info', item: 'alert-item-info' };
+
+      const mcapText = a.metrics?.marketCapUsd ? ` · Market Cap ${money(a.metrics.marketCapUsd)}` : '';
+      const volText = a.metrics?.volume24hUsd ? ` · Volumen 24 h ${money(a.metrics.volume24hUsd)}` : '';
+      const tokenText = (a.token && a.token !== '0x0000000000000000000000000000000000000000') ? `<br>${esc(a.token)}` : '';
+
+      return `
+        <article class="item alert-card ${catCfg.item} ${a.read ? '' : 'alert-unread'}">
+          <div>
+            <div class="alert-header">
+              <span class="alert-icon">${catCfg.icon}</span>
+              <strong>${esc(a.name)}</strong>
+              <span class="pill pill-mini ${catCfg.pill}">${catCfg.label}</span>
+            </div>
+            <p class="alert-message">${esc(a.message)}</p>
+            <div class="alert-details">
+              ${esc(date(a.at))}${mcapText}${volText}${tokenText}
+            </div>
+          </div>
+          <span class="pill">${a.read ? 'Gelesen' : 'Neu'}</span>
+        </article>
+      `;
+    }).join('') : `<div class="empty">${activeAlertFilter === 'all' ? 'Alles ruhig. Sobald eine Regel auslöst, findest du den Alert mit Zeitstempel und Kennzahlen hier.' : 'Keine Alerts in dieser Kategorie vorhanden.'}</div>`);
   } catch (e) {
     $('#connection-status').textContent = '● Server nicht erreichbar'; $('#connection-status').classList.add('offline');
     show(`Lokaler Server nicht erreichbar: ${e.message}. Monitoring läuft nur bei gestartetem Server.`, true);
@@ -1647,22 +1692,27 @@ document.addEventListener('click', e => {
   });
 });
 
+async function handleVaultToggle() {
+  if (!vaultStatus.initialized) {
+    navigate('wallets');
+    return;
+  }
+  if (vaultStatus.unlocked) {
+    await post('/vault/lock');
+    show('Tresor gesperrt 🔒.');
+    await refresh();
+  } else {
+    $('#quick-unlock-password').value = '';
+    $('#vault-quick-unlock-dialog').showModal();
+    $('#quick-unlock-password').focus();
+  }
+}
+
+if ($('#vault-status-pill')) {
+  $('#vault-status-pill').onclick = handleVaultToggle;
+}
 if ($('#vault-topbar-toggle-btn')) {
-  $('#vault-topbar-toggle-btn').onclick = async () => {
-    if (!vaultStatus.initialized) {
-      navigate('wallets');
-      return;
-    }
-    if (vaultStatus.unlocked) {
-      await post('/vault/lock');
-      show('Tresor gesperrt 🔒.');
-      await refresh();
-    } else {
-      $('#quick-unlock-password').value = '';
-      $('#vault-quick-unlock-dialog').showModal();
-      $('#quick-unlock-password').focus();
-    }
-  };
+  $('#vault-topbar-toggle-btn').onclick = handleVaultToggle;
 }
 
 if ($('#vault-quick-unlock-form')) {
