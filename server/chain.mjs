@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, http, parseAbi, encodeFunctionData, decodeFunctionData, decodeEventLog, formatEther, numberToHex, ContractFunctionRevertedError, ContractFunctionZeroDataError } from 'viem';
+import { createPublicClient, createWalletClient, http, parseAbi, encodeFunctionData, decodeFunctionData, decodeEventLog, formatEther, numberToHex, encodeAbiParameters, parseAbiParameters, maxUint256, ContractFunctionRevertedError, ContractFunctionZeroDataError } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import signatures from '../shared/abi.json' with { type: 'json' };
 import { deployment } from '../shared/deployment.mjs';
@@ -223,14 +223,36 @@ export async function getBalances(addresses) {
   return Object.fromEntries(entries);
 }
 
-export async function getClaimableFees(curves = []) {
+export const universalRouterAbi = parseAbi([
+  'function execute(bytes commands, bytes[] inputs, uint256 deadline) payable'
+]);
+
+export const permit2Abi = parseAbi([
+  'function allowance(address user, address token, address spender) view returns (uint160 amount, uint48 expiration, uint48 nonce)'
+]);
+
+export const erc20ExtendedAbi = parseAbi([
+  'function balanceOf(address) view returns (uint256)',
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function approve(address spender, uint256 amount) returns (bool)',
+  'function name() view returns (string)',
+  'function symbol() view returns (string)'
+]);
+
+export const wethWithdrawAbi = parseAbi([
+  'function balanceOf(address) view returns (uint256)',
+  'function withdraw(uint256 wad) public'
+]);
+
+export async function getClaimableFees(curves = [], customClient = null) {
   if (!curves.length) return [];
-  const configAddress = await client.readContract({
+  const pc = customClient || client;
+  const configAddress = await pc.readContract({
     address: deployment.factory,
     abi: vhooksAbi,
     functionName: 'config',
   });
-  const [c] = await client.readContract({
+  const [c] = await pc.readContract({
     address: configAddress,
     abi: vhooksConfigAbi,
     functionName: 'get',
@@ -240,55 +262,307 @@ export async function getClaimableFees(curves = []) {
     'function balanceOf(address curve) view returns (uint256)',
   ]);
   const curveAbi = parseAbi([
-    'function feeRecipient() view returns (address)'
+    'function feeRecipient() view returns (address)',
+    'function poolKey() view returns (address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks)',
+    'function token() view returns (address)'
   ]);
+
   return Promise.all(curves.map(async curve => {
     try {
-      const [recipient, bal] = await Promise.all([
-        client.readContract({ address: curve, abi: curveAbi, functionName: 'feeRecipient' }),
-        client.readContract({ address: escrow, abi: escrowAbi, functionName: 'balanceOf', args: [curve] }),
+      const [recipient, bal, poolKey, tokenAddr] = await Promise.all([
+        pc.readContract({ address: curve, abi: curveAbi, functionName: 'feeRecipient' }),
+        pc.readContract({ address: escrow, abi: escrowAbi, functionName: 'balanceOf', args: [curve] }),
+        pc.readContract({ address: curve, abi: curveAbi, functionName: 'poolKey' }).catch(() => null),
+        pc.readContract({ address: curve, abi: curveAbi, functionName: 'token' }).catch(() => ''),
       ]);
+
+      const pairingAddress = poolKey?.[0]?.toLowerCase() || '';
+      let stockSymbol = 'SPCX';
+      for (const stock of Object.values(deployment.stocks)) {
+        if (stock.address.toLowerCase() === pairingAddress) {
+          stockSymbol = stock.symbol;
+          break;
+        }
+      }
+
       return {
         curve,
         escrow,
+        token: tokenAddr,
+        pairingAddress,
+        stockSymbol,
         feeRecipient: recipient,
         balanceWei: bal.toString(),
         balanceEth: formatEther(bal),
       };
     } catch {
-      return { curve, escrow, feeRecipient: '', balanceWei: '0', balanceEth: '0' };
+      return { curve, escrow, token: '', pairingAddress: '', stockSymbol: 'SPCX', feeRecipient: '', balanceWei: '0', balanceEth: '0' };
     }
   }));
 }
 
-export async function executeClaimFees({ curve, privateKey }) {
+export async function swapStockToEth({ stockAddress, amount, account, walletClient, publicClient = client, minEthOut = 1n }) {
+  assert(stockAddress && /^0x[0-9a-fA-F]{40}$/.test(stockAddress), 'Ungültige Stock-Adresse.');
+  assert(amount > 0n, 'Tauschbetrag muss größer als 0 sein.');
+
+  const permit2Address = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
+  const universalRouterAddress = '0x8876789976dEcBfCbBbe364623C63652db8C0904';
+  const usdgAddress = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168';
+  const nativeEth = '0x0000000000000000000000000000000000000000';
+
+  // 1. Token allowance check for Permit2
+  const currentAllowance = await publicClient.readContract({
+    address: stockAddress,
+    abi: erc20ExtendedAbi,
+    functionName: 'allowance',
+    args: [account.address, permit2Address],
+  });
+  if (currentAllowance < amount) {
+    const approveHash = await walletClient.writeContract({
+      address: stockAddress,
+      abi: erc20ExtendedAbi,
+      functionName: 'approve',
+      args: [permit2Address, maxUint256],
+    });
+    await publicClient.waitForTransactionReceipt({ hash: approveHash });
+  }
+
+  // 2. Permit2 allowance / nonce check
+  const [, , nonce] = await publicClient.readContract({
+    address: permit2Address,
+    abi: permit2Abi,
+    functionName: 'allowance',
+    args: [account.address, stockAddress, universalRouterAddress],
+  });
+
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800);
+  const permitData = {
+    details: {
+      token: stockAddress,
+      amount: amount > (2n ** 160n - 1n) ? (2n ** 160n - 1n) : amount,
+      expiration: Number(deadline),
+      nonce: Number(nonce),
+    },
+    spender: universalRouterAddress,
+    sigDeadline: deadline,
+  };
+
+  const signature = await account.signTypedData({
+    domain: {
+      name: 'Permit2',
+      chainId: robinhoodChain.id,
+      verifyingContract: permit2Address,
+    },
+    types: {
+      PermitSingle: [
+        { name: 'details', type: 'PermitDetails' },
+        { name: 'spender', type: 'address' },
+        { name: 'sigDeadline', type: 'uint256' },
+      ],
+      PermitDetails: [
+        { name: 'token', type: 'address' },
+        { name: 'amount', type: 'uint160' },
+        { name: 'expiration', type: 'uint48' },
+        { name: 'nonce', type: 'uint48' },
+      ],
+    },
+    primaryType: 'PermitSingle',
+    message: permitData,
+  });
+
+  // 3. Multi-hop V4 Swap Calldata: Stock -> USDG -> Native ETH
+  const path = [
+    {
+      intermediateCurrency: usdgAddress,
+      fee: 8388608,
+      tickSpacing: 60,
+      hooks: '0xC15b155a3094934171A15625d1a80Aba267B6080',
+      hookData: '0x',
+    },
+    {
+      intermediateCurrency: nativeEth,
+      fee: 500,
+      tickSpacing: 10,
+      hooks: nativeEth,
+      hookData: '0x',
+    }
+  ];
+
+  const exactInType = {
+    type: 'tuple',
+    components: [
+      { name: 'currencyIn', type: 'address' },
+      {
+        name: 'path',
+        type: 'tuple[]',
+        components: [
+          { name: 'intermediateCurrency', type: 'address' },
+          { name: 'fee', type: 'uint24' },
+          { name: 'tickSpacing', type: 'int24' },
+          { name: 'hooks', type: 'address' },
+          { name: 'hookData', type: 'bytes' }
+        ]
+      },
+      { name: 'maxHopSlippage', type: 'uint256[]' },
+      { name: 'amountIn', type: 'uint128' },
+      { name: 'amountOutMinimum', type: 'uint128' }
+    ]
+  };
+
+  const p1 = encodeAbiParameters([exactInType], [{
+    currencyIn: stockAddress,
+    path,
+    maxHopSlippage: [],
+    amountIn: amount,
+    amountOutMinimum: minEthOut,
+  }]);
+
+  const p2 = encodeAbiParameters(
+    parseAbiParameters('address, uint256'),
+    [stockAddress, amount]
+  );
+
+  const p3 = encodeAbiParameters(
+    parseAbiParameters('address, uint256'),
+    [nativeEth, minEthOut]
+  );
+
+  const swapActions = '0x070c0f'; // SWAP_EXACT_IN (7), SETTLE (12), TAKE (15)
+  const swapInput = encodeAbiParameters(
+    parseAbiParameters('bytes, bytes[]'),
+    [swapActions, [p1, p2, p3]]
+  );
+
+  const permitSingleType = [
+    {
+      name: 'details',
+      type: 'tuple',
+      components: [
+        { name: 'token', type: 'address' },
+        { name: 'amount', type: 'uint160' },
+        { name: 'expiration', type: 'uint48' },
+        { name: 'nonce', type: 'uint48' },
+      ]
+    },
+    { name: 'spender', type: 'address' },
+    { name: 'sigDeadline', type: 'uint256' }
+  ];
+
+  const permitInput = encodeAbiParameters(
+    [{ type: 'tuple', components: permitSingleType }, { type: 'bytes' }],
+    [permitData, signature]
+  );
+
+  const commands = '0x0a10'; // PERMIT2_PERMIT (0x0a) + V4_SWAP (0x10)
+  const inputs = [permitInput, swapInput];
+
+  const ethBefore = await publicClient.getBalance({ address: account.address });
+  const swapHash = await walletClient.writeContract({
+    address: universalRouterAddress,
+    abi: universalRouterAbi,
+    functionName: 'execute',
+    args: [commands, inputs, deadline],
+  });
+  const swapReceipt = await publicClient.waitForTransactionReceipt({ hash: swapHash });
+  const ethAfter = await publicClient.getBalance({ address: account.address });
+  const ethDiff = ethAfter > ethBefore ? ethAfter - ethBefore : 0n;
+
+  return {
+    swapHash,
+    status: swapReceipt.status,
+    ethReceived: formatEther(ethDiff),
+  };
+}
+
+export async function executeClaimFees({ curve, privateKey, swapToEth = true, customClient = null, customWalletClient = null }) {
   assert(curve && /^0x[0-9a-fA-F]{40}$/.test(curve), 'Ungültige Curve-Adresse.');
   const account = privateKeyToAccount(privateKey);
-  const configAddress = await client.readContract({
+  const pc = customClient || client;
+  const wc = customWalletClient || createWalletClient({
+    account,
+    chain: robinhoodChain,
+    transport: http(deployment.rpc, { timeout: 30_000, retryCount: 2 }),
+  });
+
+  const configAddress = await pc.readContract({
     address: deployment.factory,
     abi: vhooksAbi,
     functionName: 'config',
   });
-  const [c] = await client.readContract({
+  const [c] = await pc.readContract({
     address: configAddress,
     abi: vhooksConfigAbi,
     functionName: 'get',
   });
   const escrow = c.feeEscrow;
+
+  const curveAbi = parseAbi([
+    'function feeRecipient() view returns (address)',
+    'function poolKey() view returns (address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks)',
+    'function token() view returns (address)'
+  ]);
+
+  const [poolKey] = await Promise.all([
+    pc.readContract({ address: curve, abi: curveAbi, functionName: 'poolKey' }).catch(() => null),
+  ]);
+  const pairingCurrency = poolKey?.[0] || deployment.stocks.us.address;
+
   const escrowAbi = parseAbi([
     'function claim(address curve) returns (uint256 amount)'
   ]);
-  const walletClient = createWalletClient({
-    account,
-    chain: robinhoodChain,
-    transport: http(deployment.rpc, { timeout: 30_000, retryCount: 2 }),
-  });
-  const hash = await walletClient.writeContract({
+
+  const claimHash = await wc.writeContract({
     address: escrow,
     abi: escrowAbi,
     functionName: 'claim',
     args: [curve],
   });
-  const receipt = await client.waitForTransactionReceipt({ hash });
-  return { hash, status: receipt.status };
+  const receipt = await pc.waitForTransactionReceipt({ hash: claimHash });
+
+  let swapResult = null;
+  if (swapToEth && receipt.status === 'success') {
+    const isWeth = pairingCurrency.toLowerCase() === deployment.stocks.eth.address.toLowerCase();
+    const isNativeEth = pairingCurrency === '0x0000000000000000000000000000000000000000';
+
+    if (isNativeEth) {
+      swapResult = { swapped: false, reason: 'already_native_eth' };
+    } else if (isWeth) {
+      const wethBal = await pc.readContract({
+        address: pairingCurrency,
+        abi: wethWithdrawAbi,
+        functionName: 'balanceOf',
+        args: [account.address]
+      });
+      if (wethBal > 0n) {
+        const unwrapHash = await wc.writeContract({
+          address: pairingCurrency,
+          abi: wethWithdrawAbi,
+          functionName: 'withdraw',
+          args: [wethBal],
+        });
+        await pc.waitForTransactionReceipt({ hash: unwrapHash });
+        swapResult = { swapHash: unwrapHash, swapped: true, ethReceived: formatEther(wethBal) };
+      }
+    } else {
+      // Stock token (SPCX, BABA, SKHY)
+      const stockBal = await pc.readContract({
+        address: pairingCurrency,
+        abi: erc20ExtendedAbi,
+        functionName: 'balanceOf',
+        args: [account.address]
+      });
+      if (stockBal > 0n) {
+        const swapRes = await swapStockToEth({
+          stockAddress: pairingCurrency,
+          amount: stockBal,
+          account,
+          walletClient: wc,
+          publicClient: pc
+        });
+        swapResult = { ...swapRes, swapped: true, claimedStock: formatEther(stockBal) };
+      }
+    }
+  }
+
+  return { hash: claimHash, status: receipt.status, swapResult };
 }

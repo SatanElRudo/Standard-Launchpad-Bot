@@ -6,6 +6,7 @@
     <a class="brand" href="/" aria-label="Standard Launch Console"><span class="brand-mark">S<span>↗</span></span><span>STANDARD<small>LAUNCH CONSOLE</small></span></a>
     <div class="workspace-label">DEIN WORKSPACE <span>LOKAL</span></div>
     <nav aria-label="Hauptnavigation">
+      <button class="nav" data-page="dashboard"><span>◈</span> Dashboard &amp; Gebühren <b id="dashboard-fee-count" class="pill pill-mini dash-hidden">0</b></button>
       <button class="nav active" data-page="launch"><span>↗</span> Token launchen</button>
       <button class="nav" data-page="queue"><span>≡</span> Entwurfs-Queue <b id="queue-count">0</b></button>
       <button class="nav" data-page="monitor"><span>◉</span> Monitoring <b id="monitor-count">0</b></button>
@@ -18,6 +19,55 @@
     <header class="topbar"><div><span class="breadcrumb">WORKSPACE /</span> <span id="page-label">Token launchen</span></div><div class="top-actions"><span id="vault-status-pill" class="pill">Tresor: Laden …</span><span id="connection-status" class="pill">Server verbinden …</span><select id="provider" aria-label="Wallet-Anbieter"><option value="">Browser-Wallet</option></select><button id="connect" class="button secondary">Wallet verbinden ↗</button></div></header>
     <main>
       <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+      <section id="page-dashboard" class="page" hidden>
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">ZENTRALES DASHBOARD &amp; GEBÜHREN</p>
+            <h1>Launches &amp; Creator-Gebühren.</h1>
+            <p>Dauerhafte Übersicht all deiner gelaunchten Tokens und gesammelten Creator-Fees – unabhängig vom Monitoring.</p>
+          </div>
+          <span class="step-badge">◈ <span>/ DASHBOARD</span></span>
+        </div>
+
+        <div class="metrics dash-metrics">
+          <div class="panel compact">
+            <small>GELAUNCHTE TOKENS</small>
+            <strong id="dash-total-launches">0</strong>
+            <span class="subtle">Dauerhaft im Workspace gespeichert</span>
+          </div>
+          <div class="panel compact">
+            <small>OFFENE GEBÜHREN (TRESOR)</small>
+            <strong id="dash-total-fees" class="dash-accent-text">0 SPCX</strong>
+            <span class="subtle">Bereit zur Abholung</span>
+          </div>
+          <div class="panel compact">
+            <small>WALLETS MIT GEBÜHREN</small>
+            <strong id="dash-wallets-with-fees">0</strong>
+            <span class="subtle">Im Tresor hinterlegt</span>
+          </div>
+        </div>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <h2><span class="section-no">01</span> Claimbare Gebühren pro Wallet</h2>
+            <label class="checkbox dash-checkbox-header">
+              <input type="checkbox" id="dash-global-autoswap" checked>
+              <strong>Direkt in ETH umtauschen (Auto-Swap)</strong>
+            </label>
+          </div>
+          <p class="field-help">Hier siehst du alle Creator-Gebühren, die auf deinen Bonding-Curves aufgelaufen sind. Bei aktiviertem Auto-Swap werden beanspruchte Stock-Token (wie $SPCX) automatisch und ohne Umwege in natives ETH getauscht.</p>
+          <div id="dash-wallet-cards" class="dashboard-wallet-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <h2><span class="section-no">02</span> Gelaunchte Tokens (Dauerhafte Übersicht)</h2>
+            <span id="dash-launch-count" class="subtle">0 Tokens</span>
+          </div>
+          <p class="field-help">Diese Liste bleibt dauerhaft erhalten, selbst wenn du einen Token aus dem aktiven Monitoring entfernst. Du kannst von hier aus jederzeit wieder einen Monitor anlegen oder Gebühren einfordern.</p>
+          <div id="dash-launches-list" class="item-list"></div>
+        </section>
+      </section>
       <section id="page-launch" class="page">
         <div class="page-heading"><div><p class="eyebrow">VOM ENTWURF ON-CHAIN</p><h1>Dein nächster Launch.</h1><p>Token vorbereiten, Wallet auswählen und den Start im Blick behalten.</p></div><span class="step-badge">01 <span>/ LAUNCH</span></span></div>
         <div class="launch-grid">

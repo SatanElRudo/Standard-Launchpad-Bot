@@ -16,3 +16,33 @@
 .callout-box li{margin-bottom:6px}
 .host-buttons-row{margin:10px 0}
 .host-status-msg{margin-bottom:10px;font-size:11px}
+.dashboard-wallet-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:18px;margin-top:14px}
+.dash-wallet-card{background:#161a14;border:1px solid var(--line);border-radius:8px;padding:20px;display:flex;flex-direction:column;justify-content:space-between;gap:14px}
+.dash-wallet-card.has-fees{border-color:#4a5c37;background:#1a2217}
+.dash-wallet-header{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.dash-fee-amount{font-size:22px;font-weight:700;color:var(--accent);letter-spacing:-.5px;margin:4px 0}
+.dash-curves-box{background:#121611;border:1px solid #283024;border-radius:6px;padding:10px 14px;margin:4px 0}
+.dash-curve-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid #22291d;font-size:12px}
+.dash-curve-item:first-child{border-top:0;padding-top:0}
+.dash-curve-item:last-child{padding-bottom:0}
+.dash-token-badge{font-weight:600;display:inline-flex;align-items:center;gap:6px}
+.dash-actions-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:6px;flex-wrap:wrap}
+.pill-active{border-color:var(--accent);color:var(--accent);background:rgba(214,244,132,.08)}
+.dash-metrics{grid-template-columns:repeat(3,1fr);margin-bottom:24px}
+.dash-accent-text{color:var(--accent)}
+.dash-checkbox-header{margin:0;font-size:12px}
+.dash-empty-grid{grid-column:1/-1;padding:24px 0}
+.dash-address-subtle{display:block;font-family:ui-monospace,monospace;font-size:11px}
+.dash-fee-block{margin:12px 0 6px}
+.dash-fee-label{letter-spacing:1px;font-size:9px}
+.dash-curves-title{display:block;margin-bottom:6px;font-size:10px}
+.dash-button-flex{flex:1}
+.dash-launch-item{padding:16px 0}
+.dash-token-row-header{display:flex;align-items:center;gap:8px}
+.dash-token-title{font-size:14px}
+.dash-contracts-line{margin-top:4px;display:block}
+.dash-confirmed-line{margin-top:2px;display:block}
+.dash-subtle-hint{font-size:11px}
+.dash-hidden{display:none}
+.dash-visible{display:inline-block}
+.monitor-fee-banner{margin-top:0.4rem;background:rgba(0,255,100,0.08);padding:0.4rem 0.6rem;border-radius:6px;display:flex;justify-content:space-between;align-items:center}

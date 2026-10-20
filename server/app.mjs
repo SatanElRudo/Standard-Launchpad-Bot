@@ -27,6 +27,8 @@ export function createApp({
   stockBalanceFn = getStockBalances,
   snipeFn = executeMultiSnipe,
   sellFn = executeMultiSell,
+  getFeesFn = getClaimableFees,
+  claimFeesFn = executeClaimFees,
 } = {}) {
   const store = createStore(dataDir), state = store.state;
   const vault = createVault({ store });
@@ -269,35 +271,119 @@ export function createApp({
           ...(state.launches || []).map(l => l.curve),
           ...(state.monitors || []).map(m => m.curve),
         ].filter(c => c && /^0x[0-9a-fA-F]{40}$/.test(c)))];
-        const feeData = await getClaimableFees(curves);
-        const vaultAddrs = new Set(vault.getWallets().map(w => w.address.toLowerCase()));
-        const enriched = feeData.map(f => ({
-          ...f,
-          isMine: vaultAddrs.has(f.feeRecipient?.toLowerCase()),
-        }));
-        return send(200, enriched);
+        const feeData = await getFeesFn(curves);
+        const vaultWallets = vault.getWallets();
+        const vaultMap = new Map(vaultWallets.map(w => [w.address.toLowerCase(), w]));
+        const publicWalletMap = new Map((state.wallets || []).map(w => [w.address.toLowerCase(), w]));
+        const launchesMap = new Map((state.launches || []).map(l => [l.curve?.toLowerCase(), l]));
+
+        const byCurve = feeData.map(f => {
+          const launch = launchesMap.get(f.curve.toLowerCase());
+          const vaultWallet = vaultMap.get(f.feeRecipient?.toLowerCase());
+          const publicWallet = publicWalletMap.get(f.feeRecipient?.toLowerCase());
+          return {
+            ...f,
+            name: launch?.name || '',
+            symbol: launch?.symbol || '',
+            token: f.token || launch?.token || '',
+            walletLabel: vaultWallet?.label || publicWallet?.label || '',
+            isMine: Boolean(vaultWallet),
+            confirmedAt: launch?.confirmedAt || null,
+            txHash: launch?.hash || '',
+          };
+        });
+
+        const byWallet = {};
+        for (const item of byCurve) {
+          const addr = (item.feeRecipient || '').toLowerCase();
+          if (!addr) continue;
+          if (!byWallet[addr]) {
+            const vw = vaultMap.get(addr);
+            const pw = publicWalletMap.get(addr);
+            byWallet[addr] = {
+              address: item.feeRecipient,
+              label: vw?.label || pw?.label || (item.feeRecipient.slice(0, 6) + '…' + item.feeRecipient.slice(-4)),
+              isVault: Boolean(vw),
+              vaultId: vw?.id || null,
+              totalBalanceEth: 0,
+              stockSymbol: item.stockSymbol || 'SPCX',
+              curves: [],
+            };
+          }
+          const num = Number(item.balanceEth) || 0;
+          byWallet[addr].totalBalanceEth += num;
+          byWallet[addr].curves.push(item);
+        }
+
+        for (const w of Object.values(byWallet)) {
+          w.totalBalanceEth = w.totalBalanceEth.toFixed(6).replace(/\.?0+$/, '');
+          if (w.totalBalanceEth === '') w.totalBalanceEth = '0';
+        }
+
+        return send(200, {
+          byCurve,
+          byWallet,
+          launches: state.launches || [],
+        });
       }
       if (req.method === 'POST' && path === '/api/fees/claim') {
         assert(vault.isUnlocked(), 'Tresor ist gesperrt.');
         const input = await body(req);
+        const swapToEth = input.swapToEth !== false;
+
+        if (input.walletAddress) {
+          const walletAddr = input.walletAddress.toLowerCase();
+          const wallet = vault.findWallet(walletAddr);
+          assert(wallet, `Keine passende Tresor-Wallet (${input.walletAddress}) gefunden.`);
+          const privateKey = vault.getPrivateKey(wallet.id);
+
+          const curves = [...new Set([
+            ...(state.launches || []).map(l => l.curve),
+            ...(state.monitors || []).map(m => m.curve),
+          ].filter(c => c && /^0x[0-9a-fA-F]{40}$/.test(c)))];
+          const feeData = await getFeesFn(curves);
+          const walletCurves = feeData.filter(f => f.feeRecipient?.toLowerCase() === walletAddr && Number(f.balanceEth) > 0);
+          assert(walletCurves.length > 0, 'Keine claimbaren Gebühren für diese Wallet vorhanden.');
+
+          const results = [];
+          for (const item of walletCurves) {
+            try {
+              const res = await claimFeesFn({ curve: item.curve, privateKey, swapToEth });
+              results.push({ curve: item.curve, amount: item.balanceEth, ...res });
+              state.alerts.unshift({
+                id: randomUUID(),
+                name: `Gebühren geclaimt: ${wallet.label}`,
+                message: `${item.balanceEth} ${item.stockSymbol} für Curve ${item.curve} abgeholt${res.swapResult?.swapped ? ' und in ETH umgetauscht' : ''} (TX: ${res.hash}).`,
+                at: Date.now(),
+                token: item.curve,
+                metrics: {},
+              });
+            } catch (err) {
+              results.push({ curve: item.curve, error: err.message });
+            }
+          }
+          store.save();
+          return send(200, { success: true, results, swapToEth });
+        }
+
         const curve = input.curve;
         assert(curve && /^0x[0-9a-fA-F]{40}$/.test(curve), 'Ungültige Curve-Adresse.');
-        const [feeInfo] = await getClaimableFees([curve]);
+        const [feeInfo] = await getFeesFn([curve]);
         assert(feeInfo && feeInfo.feeRecipient, 'Curve oder Gebührenempfänger nicht gefunden.');
         const wallet = vault.findWallet(feeInfo.feeRecipient);
         assert(wallet, `Keine passende Empfänger-Wallet (${feeInfo.feeRecipient}) im Tresor gefunden.`);
         const privateKey = vault.getPrivateKey(wallet.id);
-        const claimResult = await executeClaimFees({ curve, privateKey });
+        const claimResult = await claimFeesFn({ curve, privateKey, swapToEth });
         state.alerts.unshift({
           id: randomUUID(),
           name: `Gebühren geclaimt: ${wallet.label}`,
-          message: `${feeInfo.balanceEth} Gebühren für Curve ${curve} erfolgreich abgeholt (TX: ${claimResult.hash}).`,
+          message: `${feeInfo.balanceEth} ${feeInfo.stockSymbol} für Curve ${curve} erfolgreich abgeholt${claimResult.swapResult?.swapped ? ' und in ETH umgetauscht' : ''} (TX: ${claimResult.hash}).`,
           at: Date.now(),
           token: curve,
           metrics: {},
         });
         store.save();
-        return send(200, { ...claimResult, claimedAmount: feeInfo.balanceEth });
+        return send(200, { ...claimResult, claimedAmount: feeInfo.balanceEth, stockSymbol: feeInfo.stockSymbol, swapToEth });
       }
       if (req.method === 'POST' && path === '/api/snipe') {
         assert(vault.isUnlocked(), 'Tresor ist gesperrt.');

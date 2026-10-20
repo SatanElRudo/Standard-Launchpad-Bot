@@ -60,7 +60,14 @@ async function busy(button, action) {
 function navigate(page) {
   document.querySelectorAll('.page').forEach(el => el.hidden = el.id !== `page-${page}`);
   document.querySelectorAll('.nav').forEach(el => el.classList.toggle('active', el.dataset.page === page));
-  $('#page-label').textContent = { launch: 'Token launchen', queue: 'Entwurfs-Queue', monitor: 'Monitoring', wallets: 'Wallets & Tresor', alerts: 'Alerts' }[page];
+  $('#page-label').textContent = {
+    dashboard: 'Dashboard & Gebühren',
+    launch: 'Token launchen',
+    queue: 'Entwurfs-Queue',
+    monitor: 'Monitoring',
+    wallets: 'Wallets & Tresor',
+    alerts: 'Alerts'
+  }[page] || 'Launch Console';
   if (page === 'queue') {
     void updateSnipeWallets(state.queue?.[0]?.country || 'us');
   }
@@ -838,6 +845,136 @@ function loadDraft(draft) {
   preview(); navigate('launch');
 }
 
+function renderDashboard(state, feeData) {
+  const launches = state.launches || [];
+  const byWallet = feeData?.byWallet || {};
+
+  if ($('#dash-total-launches')) $('#dash-total-launches').textContent = launches.length;
+  if ($('#dash-launch-count')) $('#dash-launch-count').textContent = `${launches.length} Token${launches.length === 1 ? '' : 's'}`;
+
+  let totalVaultFees = 0;
+  let vaultWalletsWithFees = 0;
+  let totalFeeItemsCount = 0;
+
+  for (const w of Object.values(byWallet)) {
+    if (w.isVault && Number(w.totalBalanceEth) > 0) {
+      totalVaultFees += Number(w.totalBalanceEth);
+      vaultWalletsWithFees++;
+      totalFeeItemsCount += w.curves?.length || 0;
+    }
+  }
+
+  if ($('#dash-total-fees')) {
+    $('#dash-total-fees').textContent = `${totalVaultFees.toFixed(6).replace(/\.?0+$/, '') || '0'} SPCX`;
+  }
+  if ($('#dash-wallets-with-fees')) {
+    $('#dash-wallets-with-fees').textContent = vaultWalletsWithFees;
+  }
+
+  const feeBadge = $('#dashboard-fee-count');
+  if (feeBadge) {
+    if (totalFeeItemsCount > 0) {
+      feeBadge.textContent = totalFeeItemsCount;
+      feeBadge.classList.remove('dash-hidden');
+      feeBadge.classList.add('dash-visible');
+    } else {
+      feeBadge.classList.remove('dash-visible');
+      feeBadge.classList.add('dash-hidden');
+    }
+  }
+
+  // Section 1: Claimbare Gebühren pro Wallet
+  const walletEntries = Object.values(byWallet);
+  const walletsWithFees = walletEntries.filter(w => Number(w.totalBalanceEth) > 0);
+
+  if (!walletsWithFees.length) {
+    render('#dash-wallet-cards', '<div class="empty dash-empty-grid">Aktuell keine unbeanspruchten Creator-Gebühren vorhanden. Sobald auf den Bonding-Curves deiner Tokens gehandelt wird, sammeln sich die Gebühren hier automatisch an.</div>');
+  } else {
+    render('#dash-wallet-cards', walletsWithFees.map(w => {
+      const isMine = w.isVault;
+      return `
+        <article class="dash-wallet-card has-fees">
+          <div>
+            <div class="dash-wallet-header">
+              <div>
+                <strong>${esc(w.label)}</strong>
+                <span class="subtle dash-address-subtle">${esc(short(w.address))}</span>
+              </div>
+              <span class="pill ${isMine ? 'pill-active' : ''}">${isMine ? '🔒 Im Tresor' : 'Beobachtet'}</span>
+            </div>
+            <div class="dash-fee-block">
+              <small class="subtle dash-fee-label">OFFENE GEBÜHREN</small>
+              <div class="dash-fee-amount">${esc(w.totalBalanceEth)} ${esc(w.stockSymbol || 'SPCX')}</div>
+            </div>
+            <div class="dash-curves-box">
+              <small class="subtle dash-curves-title">Aufgelaufene Tokens (${w.curves.length}):</small>
+              ${w.curves.map(c => `
+                <div class="dash-curve-item">
+                  <span class="dash-token-badge">🪙 ${esc(c.name || 'Token')} <span class="subtle">$${esc(c.symbol || '')}</span></span>
+                  <strong>${esc(c.balanceEth)} ${esc(c.stockSymbol || 'SPCX')}</strong>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          <div class="dash-actions-row">
+            ${isMine ? `
+              <button type="button" class="button primary dash-button-flex" data-action="claim-wallet-fees" data-wallet="${esc(w.address)}">
+                Alle Gebühren abholen ⚡
+              </button>
+            ` : `
+              <span class="subtle dash-subtle-hint">Private Key nicht im Tresor hinterlegt</span>
+            `}
+            <a class="text-link" href="${state.deployment.explorer}/address/${esc(w.address)}" target="_blank" rel="noopener noreferrer">Explorer ↗</a>
+          </div>
+        </article>
+      `;
+    }).join(''));
+  }
+
+  // Section 2: Dauerhafte Übersicht aller gelaunchten Tokens
+  if (!launches.length) {
+    render('#dash-launches-list', '<div class="empty">Noch keine Tokens gelauncht. Gelaunchte Tokens werden hier dauerhaft und übersichtlich aufgeführt.</div>');
+  } else {
+    render('#dash-launches-list', launches.map(l => {
+      const fee = claimableFeesMap[l.curve?.toLowerCase()];
+      const feeAmount = fee ? Number(fee.balanceEth) : 0;
+      const stockSym = fee?.stockSymbol || 'SPCX';
+      const hasFees = feeAmount > 0;
+      const isMine = fee?.isMine || false;
+
+      return `
+        <div class="item dash-launch-item">
+          <div>
+            <div class="dash-token-row-header">
+              <strong class="dash-token-title">${esc(l.name)}</strong>
+              <span class="pill pill-mini">$${esc(l.symbol)}</span>
+              ${hasFees ? `<span class="pill pill-mini pill-active">💰 ${esc(fee.balanceEth)} ${esc(stockSym)}</span>` : ''}
+            </div>
+            <small class="dash-contracts-line">
+              Token: <a class="text-link" href="${state.deployment.explorer}/address/${esc(l.token)}" target="_blank" rel="noopener noreferrer">${esc(l.token)} ↗</a>
+              &nbsp;·&nbsp; Curve: <a class="text-link" href="${state.deployment.explorer}/address/${esc(l.curve)}" target="_blank" rel="noopener noreferrer">${esc(short(l.curve))} ↗</a>
+              &nbsp;·&nbsp; Deployer: ${esc(short(l.wallet || ''))}
+            </small>
+            ${l.confirmedAt ? `<small class="subtle dash-confirmed-line">Gelauncht am: ${date(l.confirmedAt)}</small>` : ''}
+          </div>
+          <div class="item-actions">
+            ${(hasFees && isMine) ? `
+              <button type="button" class="button mini primary" data-action="claim-fees" data-curve="${esc(l.curve)}">
+                Gebühr claimen ➔
+              </button>
+            ` : ''}
+            <button type="button" class="text-button" data-action="monitor-launch" data-id="${esc(l.hash)}">
+              Monitoring anlegen ↗
+            </button>
+            <a class="text-link" href="${state.deployment.explorer}/tx/${esc(l.hash)}" target="_blank" rel="noopener noreferrer">TX ↗</a>
+            <a class="text-link" href="https://www.standardreserve.xyz/token/${esc(l.token)}" target="_blank" rel="noopener noreferrer">Standard Reserve ↗</a>
+          </div>
+        </div>
+      `;
+    }).join(''));
+  }
+}
+
 async function refresh() {
   if (loadingState) return;
   loadingState = true;
@@ -1042,12 +1179,16 @@ async function refresh() {
     const pending = pendingHash ? `<div class="pending-launch"><a class="text-link" href="${state.deployment.explorer}/tx/${esc(pendingHash)}" target="_blank" rel="noopener noreferrer">Gesendeten Launch im Explorer prüfen ↗</a><p class="field-help">Warte auf Bestätigung. Bei Ersatztransaktionen den neuen Hash im Explorer prüfen.</p></div>` : '';
     render('#launches', pending + (state.launches.length ? state.launches.map(l => `<div class="item"><div><strong>${esc(l.name)} · $${esc(l.symbol)}</strong><small>${esc(l.token)}</small></div><div class="item-actions"><button class="text-button" data-action="monitor-launch" data-id="${l.hash}">Monitor anlegen ↗</button><a class="text-link" href="${state.deployment.explorer}/tx/${l.hash}" target="_blank" rel="noopener noreferrer">Transaktion ↗</a></div></div>`).join('') : '<div class="empty">Bestätigte Launches erscheinen hier automatisch.</div>'));
 
+    let feeData = { byCurve: [], byWallet: {} };
     try {
-      const fees = await api('/fees');
-      claimableFeesMap = Object.fromEntries(fees.map(f => [f.curve?.toLowerCase(), f]));
+      const feesResp = await api('/fees');
+      feeData = Array.isArray(feesResp) ? { byCurve: feesResp, byWallet: {} } : feesResp;
+      claimableFeesMap = Object.fromEntries((feeData.byCurve || []).map(f => [f.curve?.toLowerCase(), f]));
     } catch {
       claimableFeesMap = {};
     }
+
+    renderDashboard(state, feeData);
 
     render('#monitors', state.monitors.length ? state.monitors.map(m => {
       const s = m.snapshot;
@@ -1056,7 +1197,7 @@ async function refresh() {
         : '';
       const feeInfo = m.curve ? claimableFeesMap[m.curve.toLowerCase()] : null;
       const feeHtml = (feeInfo && Number(feeInfo.balanceEth) > 0)
-        ? `<div class="monitor-creator-info" style="margin-top:0.4rem; background:rgba(0,255,100,0.08); padding:0.4rem 0.6rem; border-radius:6px; display:flex; justify-content:space-between; align-items:center;">
+        ? `<div class="monitor-creator-info monitor-fee-banner">
              <span>💰 <strong>${esc(feeInfo.balanceEth)} ${esc(state.deployment.stocks[m.country || 'us']?.symbol || 'SPCX')}</strong> Creator-Fees gesammelt</span>
              ${feeInfo.isMine ? `<button type="button" class="button mini primary" data-action="claim-fees" data-curve="${esc(m.curve)}">Gebühren claimen ➔</button>` : ''}
            </div>`
@@ -1135,8 +1276,23 @@ document.addEventListener('click', e => {
       $('#monitor-form').scrollIntoView({ behavior: 'smooth' });
     } else if (action === 'claim-fees') {
       const curve = button.dataset.curve;
-      const res = await post('/fees/claim', { curve });
-      show(`Erfolgreich ${res.claimedAmount || ''} Gebühren abgeholt! TX: ${res.hash}`);
+      const swapToEth = $('#dash-global-autoswap') ? $('#dash-global-autoswap').checked : true;
+      const res = await post('/fees/claim', { curve, swapToEth });
+      if (res.swapResult?.swapped) {
+        show(`Erfolgreich ${res.claimedAmount || ''} ${res.stockSymbol || 'SPCX'} geclaimt und direkt in ${res.swapResult.ethReceived || ''} ETH umgetauscht! (TX: ${short(res.hash)})`);
+      } else {
+        show(`Erfolgreich ${res.claimedAmount || ''} ${res.stockSymbol || 'SPCX'} Gebühren abgeholt! TX: ${res.hash}`);
+      }
+    } else if (action === 'claim-wallet-fees') {
+      const walletAddress = button.dataset.wallet;
+      const swapToEth = $('#dash-global-autoswap') ? $('#dash-global-autoswap').checked : true;
+      const res = await post('/fees/claim', { walletAddress, swapToEth });
+      if (res.success) {
+        const count = res.results?.length || 0;
+        show(`Erfolgreich alle Gebühren für ${short(walletAddress)} (${count} Token) abgeholt${swapToEth ? ' und direkt in ETH getauscht' : ''}!`);
+      } else {
+        show(`Gebühren-Abholung abgeschlossen: ${JSON.stringify(res)}`);
+      }
     }
     await refresh();
   });
