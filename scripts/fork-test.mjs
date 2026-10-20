@@ -17,6 +17,8 @@ import { executeMultiSnipe, executeMultiSell, erc20Abi } from '../server/sniper.
 import { deployment } from '../shared/deployment.mjs';
 import signatures from '../shared/abi.json' with { type: 'json' };
 
+const vhooksAbi = parseAbi(signatures.vhooks);
+const vhooksConfigAbi = parseAbi(signatures.vhooksConfig);
 const dropAbi = parseAbi([
   ...signatures.drop,
   ...signatures.legacy.filter(s => /^function (launchFee|pairAsset|curveOfToken)/.test(s)),
@@ -188,32 +190,77 @@ async function runForkTest() {
       transport: http(FORK_RPC),
     });
 
-    const launchFee = await client.readContract({
-      address: deployment.factory,
-      abi: legacyAbi,
-      functionName: 'launchFee',
-    });
-    console.log(`Standard Factory launch fee: ${formatEther(launchFee)} ETH`);
-
-    let version = 'drop';
+    let version = 'vhooks';
+    let launchFee = 500000000000000n;
+    let factoryAbi = vhooksAbi;
     try {
-      await client.readContract({ address: deployment.factory, abi: dropAbi, functionName: 'charterDrop' });
+      const cfgAddr = await client.readContract({
+        address: deployment.factory,
+        abi: vhooksAbi,
+        functionName: 'config',
+      });
+      const [c] = await client.readContract({
+        address: cfgAddr,
+        abi: vhooksConfigAbi,
+        functionName: 'get',
+      });
+      launchFee = c.launchFee;
+      version = 'vhooks';
+      factoryAbi = vhooksAbi;
     } catch {
-      version = 'legacy';
+      try {
+        await client.readContract({ address: deployment.factory, abi: dropAbi, functionName: 'charterDrop' });
+        version = 'drop';
+        factoryAbi = dropAbi;
+      } catch {
+        version = 'legacy';
+        factoryAbi = legacyAbi;
+      }
+      launchFee = await client.readContract({
+        address: deployment.factory,
+        abi: legacyAbi,
+        functionName: 'launchFee',
+      });
     }
-    const factoryAbi = version === 'drop' ? dropAbi : legacyAbi;
+    console.log(`Standard Factory version: ${version}, launch fee: ${formatEther(launchFee)} ETH`);
 
     const zero = '0x0000000000000000000000000000000000000000';
-    const launchParams = {
-      stock: spcxAddress,
-      name: 'Fork Test Token',
-      symbol: 'FTK',
-      metadataURI: deployment.metadataDefault.uri,
-      creatorTaxBps: 0,
-      snipeTaxOn: true,
-      referrer: zero,
-      ...(version === 'drop' ? { charterDropBps: 0 } : {}),
-    };
+    let launchParams;
+    if (version === 'vhooks') {
+      launchParams = {
+        stock: spcxAddress,
+        name: 'Fork Test Token',
+        symbol: 'FTK',
+        metadataURI: deployment.metadataDefault.uri,
+        snipeTaxOn: true,
+        referrer: zero,
+        charterDropBps: 0,
+        dropMode: 0,
+        module: zero,
+        enforced: false,
+      };
+    } else if (version === 'drop') {
+      launchParams = {
+        stock: spcxAddress,
+        name: 'Fork Test Token',
+        symbol: 'FTK',
+        metadataURI: deployment.metadataDefault.uri,
+        creatorTaxBps: 0,
+        snipeTaxOn: true,
+        referrer: zero,
+        charterDropBps: 0,
+      };
+    } else {
+      launchParams = {
+        stock: spcxAddress,
+        name: 'Fork Test Token',
+        symbol: 'FTK',
+        metadataURI: deployment.metadataDefault.uri,
+        creatorTaxBps: 0,
+        snipeTaxOn: true,
+        referrer: zero,
+      };
+    }
     const buyParams = {
       payAsset: zero,
       amountIn: 0n,
@@ -240,19 +287,23 @@ async function runForkTest() {
 
     let launchedToken = null;
     let launchedCurve = null;
+    const candidateAbis = [vhooksAbi, dropAbi, legacyAbi];
     for (const log of launchReceipt.logs) {
-      try {
-        const decoded = decodeEventLog({
-          abi: factoryAbi,
-          data: log.data,
-          topics: log.topics,
-        });
-        if (decoded.eventName === 'Launched') {
-          launchedToken = decoded.args.token;
-          launchedCurve = decoded.args.curve;
-          break;
-        }
-      } catch {}
+      for (const abi of candidateAbis) {
+        try {
+          const decoded = decodeEventLog({
+            abi,
+            data: log.data,
+            topics: log.topics,
+          });
+          if (decoded.eventName === 'Launched') {
+            launchedToken = decoded.args.token;
+            launchedCurve = decoded.args.curve;
+            break;
+          }
+        } catch {}
+      }
+      if (launchedToken) break;
     }
 
     assert.ok(launchedToken, 'Launched event must provide token address');
@@ -264,9 +315,9 @@ async function runForkTest() {
     // 5. Execute Multi-Snipe Buy (Sniper A, B, C)
     console.log('\nExecuting Multi-Snipe buy on the fresh bonding curve...');
     const snipeOrders = [
-      { walletId: sniperA.id, amount: 2 }, // 2 SPCX
-      { walletId: sniperB.id, amount: 3 }, // 3 SPCX
-      { walletId: sniperC.id, amount: 4 }, // 4 SPCX
+      { walletId: sniperA.id, amount: '0,05' }, // 0.05 SPCX (comma decimal test)
+      { walletId: sniperB.id, amount: '0.1' },  // 0.1 SPCX
+      { walletId: sniperC.id, amount: '0.2' },  // 0.2 SPCX
     ];
 
     const snipeResults = await executeMultiSnipe({

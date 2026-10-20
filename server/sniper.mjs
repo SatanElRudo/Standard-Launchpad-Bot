@@ -9,18 +9,31 @@ export const routerAbi = parseAbi(signatures.router);
 export const erc20Abi = parseAbi(signatures.erc20);
 const zeroAddress = '0x0000000000000000000000000000000000000000';
 
+const DEFAULT_PHANTOM_RESERVES = {
+  us: 29317145057324793856n,
+  eth: 1680000000000000000n,
+  cn: 40671642465533042688n,
+  kr: 30131171031222587392n,
+};
+
 export async function getStockBalances(addresses, country = 'us') {
-  const stock = deployment.stocks[country]?.address;
+  const stock = deployment.stocks[country];
   if (!stock) return {};
+  const isNativeEth = country === 'eth' || Boolean(stock.native);
   const entries = await Promise.all(addresses.map(async addr => {
     try {
-      const bal = await client.readContract({
-        address: stock,
-        abi: erc20Abi,
-        functionName: 'balanceOf',
-        args: [addr],
-      });
-      return [addr.toLowerCase(), formatEther(bal)];
+      if (isNativeEth) {
+        const bal = await client.getBalance({ address: addr });
+        return [addr.toLowerCase(), formatEther(bal)];
+      } else {
+        const bal = await client.readContract({
+          address: stock.address,
+          abi: erc20Abi,
+          functionName: 'balanceOf',
+          args: [addr],
+        });
+        return [addr.toLowerCase(), formatEther(bal)];
+      }
     } catch {
       return [addr.toLowerCase(), '0'];
     }
@@ -39,9 +52,11 @@ export async function executeSnipeBuy({
   customWalletClient = null,
 } = {}) {
   assert(curve && /^0x[0-9a-fA-F]{40}$/.test(curve), 'Ungültige Curve-Adresse.');
-  const stock = deployment.stocks[country]?.address;
-  assert(stock, `Unbekanntes Handelspaar: ${country}`);
-  const stockSymbol = deployment.stocks[country].symbol;
+  const stockInfo = deployment.stocks[country];
+  assert(stockInfo, `Unbekanntes Handelspaar: ${country}`);
+  const stock = stockInfo.address;
+  const isNativeEth = country === 'eth' || Boolean(stockInfo.native);
+  const stockSymbol = isNativeEth ? 'ETH' : stockInfo.symbol;
 
   const wallet = vault.findWallet(walletId);
   assert(wallet, 'Sniper-Wallet nicht im Tresor gefunden.');
@@ -49,9 +64,10 @@ export async function executeSnipeBuy({
   const pk = vault.getPrivateKey(wallet.id);
   const account = privateKeyToAccount(pk);
 
-  const numAmount = Number(amount);
+  const cleanAmount = String(amount ?? '').trim().replace(',', '.');
+  const numAmount = Number(cleanAmount);
   assert(Number.isFinite(numAmount) && numAmount > 0, 'Kaufbetrag muss eine positive Zahl sein.');
-  const amountInWei = parseEther(String(amount));
+  const amountInWei = parseEther(cleanAmount);
 
   const walletClient = customWalletClient ?? createWalletClient({
     account,
@@ -60,44 +76,52 @@ export async function executeSnipeBuy({
   });
 
   // 1. Balance check
-  const balance = await customClient.readContract({
-    address: stock,
-    abi: erc20Abi,
-    functionName: 'balanceOf',
-    args: [account.address],
-  });
-  assert(balance >= amountInWei, `Wallet ${wallet.label} hat nicht genug ${stockSymbol} (vorhanden: ${formatEther(balance)}, benötigt: ${amount}).`);
-
-  // 2. Allowance check & approve if necessary
-  const allowance = await customClient.readContract({
-    address: stock,
-    abi: erc20Abi,
-    functionName: 'allowance',
-    args: [account.address, deployment.router],
-  });
-
-  if (allowance < amountInWei) {
-    const approveData = encodeFunctionData({
+  if (isNativeEth) {
+    const balance = await customClient.getBalance({ address: account.address });
+    assert(balance >= amountInWei, `Wallet ${wallet.label} hat nicht genug ETH (vorhanden: ${formatEther(balance)}, benötigt: ${cleanAmount} ETH).`);
+  } else {
+    const balance = await customClient.readContract({
+      address: stock,
       abi: erc20Abi,
-      functionName: 'approve',
-      args: [deployment.router, maxUint256],
+      functionName: 'balanceOf',
+      args: [account.address],
     });
-    const approveHash = await walletClient.sendTransaction({
-      to: stock,
-      data: approveData,
+    assert(balance >= amountInWei, `Wallet ${wallet.label} hat nicht genug ${stockSymbol} (vorhanden: ${formatEther(balance)}, benötigt: ${cleanAmount}).`);
+  }
+
+  // 2. Allowance check & approve if necessary (only needed for non-native tokens)
+  if (!isNativeEth) {
+    const allowance = await customClient.readContract({
+      address: stock,
+      abi: erc20Abi,
+      functionName: 'allowance',
+      args: [account.address, deployment.router],
     });
-    if (customClient.waitForTransactionReceipt) {
-      await customClient.waitForTransactionReceipt({ hash: approveHash });
+
+    if (allowance < amountInWei) {
+      const approveData = encodeFunctionData({
+        abi: erc20Abi,
+        functionName: 'approve',
+        args: [deployment.router, maxUint256],
+      });
+      const approveHash = await walletClient.sendTransaction({
+        to: stock,
+        data: approveData,
+      });
+      if (customClient.waitForTransactionReceipt) {
+        await customClient.waitForTransactionReceipt({ hash: approveHash });
+      }
     }
   }
 
   // 3. buyExactIn with on-chain minTokensOut protection
+  const payAsset = isNativeEth ? zeroAddress : stock;
   const buyData = encodeFunctionData({
     abi: routerAbi,
     functionName: 'buyExactIn',
     args: [
       curve,
-      stock,
+      payAsset,
       amountInWei,
       0n, // minStockOut
       minTokensOut, // on-chain frontrun & slippage protection
@@ -110,7 +134,7 @@ export async function executeSnipeBuy({
   const hash = await walletClient.sendTransaction({
     to: deployment.router,
     data: buyData,
-    value: 0n,
+    value: isNativeEth ? amountInWei : 0n,
     gas: 350_000n,
   });
 
@@ -122,7 +146,7 @@ export async function executeSnipeBuy({
         label: wallet.label,
         address: account.address,
         hash,
-        amount,
+        amount: cleanAmount,
         currency: stockSymbol,
         status: 'error',
         error: 'Kauf-Transaktion on-chain fehlgeschlagen (reverted).',
@@ -135,7 +159,7 @@ export async function executeSnipeBuy({
     label: wallet.label,
     address: account.address,
     hash,
-    amount,
+    amount: cleanAmount,
     currency: stockSymbol,
     status: 'success',
   };
@@ -152,14 +176,18 @@ export async function executeMultiSnipe({
   antiFrontrun = true,
   maxSlippagePct = 1.0,
   expectedInitialSupply = 777777777777777777777777777n,
-  phantomReserve = 29317145057324793856n,
+  phantomReserve = null,
   virtualTokens = 1088888888888888888888888887n,
 } = {}) {
   assert(Array.isArray(snipeOrders), 'Snipe-Aufträge müssen als Liste übergeben werden.');
   assert(snipeOrders.length <= 10, 'Maximal 10 Snipe-Wallets erlaubt.');
   if (snipeOrders.length === 0) return [];
 
-  const stockSymbol = deployment.stocks[country]?.symbol || 'SPCX';
+  const stockInfo = deployment.stocks[country];
+  const isNativeEth = country === 'eth' || Boolean(stockInfo?.native);
+  const stockSymbol = isNativeEth ? 'ETH' : (stockInfo?.symbol || 'SPCX');
+
+  const effectivePhantomReserve = phantomReserve ?? DEFAULT_PHANTOM_RESERVES[country] ?? 29317145057324793856n;
 
   // 1. Pre-Flight Anti-Frontrun Check: verify no outsider has bought on the curve
   if (antiFrontrun && token && /^0x[0-9a-fA-F]{40}$/.test(token)) {
@@ -175,11 +203,12 @@ export async function executeMultiSnipe({
         const msg = `Anti-Frontrun: Fremder Bot/Player hat bereits ${formatEther(diff)} Token vor uns auf der Curve gekauft. Snipe abgebrochen.`;
         return snipeOrders.map(order => {
           const w = vault.findWallet(order.walletId);
+          const cleanAmount = String(order.amount ?? '').trim().replace(',', '.');
           return {
             walletId: order.walletId,
             label: w?.label || 'Wallet',
             address: w?.address || '',
-            amount: order.amount,
+            amount: cleanAmount,
             currency: stockSymbol,
             status: 'aborted_frontrun_detected',
             error: msg,
@@ -192,12 +221,13 @@ export async function executeMultiSnipe({
   }
 
   // 2. Calculate sequential minTokensOut for each order in our own group
-  const k = phantomReserve * virtualTokens;
-  let runningReserve = phantomReserve;
+  const k = effectivePhantomReserve * virtualTokens;
+  let runningReserve = effectivePhantomReserve;
   const ordersWithLimits = snipeOrders.map(order => {
+    const cleanAmount = String(order.amount ?? '').trim().replace(',', '.');
     let minTokensOut = 0n;
     if (antiFrontrun) {
-      const amountInWei = parseEther(String(order.amount));
+      const amountInWei = parseEther(cleanAmount);
       const amountAfterFee = amountInWei * 9900n / 10000n; // 1% base fee
       const nextReserve = runningReserve + amountAfterFee;
       const nextVirtualTokens = k / nextReserve;
@@ -207,7 +237,7 @@ export async function executeMultiSnipe({
       const slippageBps = BigInt(Math.max(0, Math.floor(maxSlippagePct * 100)));
       minTokensOut = expectedOut * (10000n - slippageBps) / 10000n;
     }
-    return { ...order, minTokensOut };
+    return { ...order, amount: cleanAmount, minTokensOut };
   });
 
   // 3. Execute all buys in order so sequential price progression and nonces match minTokensOut
@@ -258,6 +288,8 @@ export async function executeSnipeSell({
   assert(token && /^0x[0-9a-fA-F]{40}$/.test(token), 'Ungültige Token-Adresse.');
   const stock = deployment.stocks[country]?.address;
   assert(stock, `Unbekanntes Handelspaar: ${country}`);
+  const isNativeEth = country === 'eth' || Boolean(deployment.stocks[country]?.native);
+  const payoutAsset = isNativeEth ? zeroAddress : stock;
 
   const wallet = vault.findWallet(walletId);
   assert(wallet, 'Verkaufs-Wallet nicht im Tresor gefunden.');
@@ -325,7 +357,7 @@ export async function executeSnipeSell({
         args: [
           curve,
           tokenBal,
-          stock,
+          payoutAsset,
           0n, // minPayout
           account.address,
           zeroAddress,
@@ -345,7 +377,7 @@ export async function executeSnipeSell({
     args: [
       curve,
       tokenBal,
-      stock,
+      payoutAsset,
       0n, // minPayout
       account.address,
       zeroAddress,

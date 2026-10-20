@@ -123,6 +123,39 @@ function preview() {
 }
 $('#launch-form').addEventListener('input', preview);
 $('#country').addEventListener('change', preview);
+
+async function hostSelectedImageFile(file) {
+  const statusEl = $('#host-status');
+  if (statusEl) {
+    statusEl.hidden = false;
+    statusEl.textContent = '⏳ Lade Bild hoch & generiere Metadaten...';
+  }
+  const reader = new FileReader();
+  const base64Promise = new Promise((resolve, reject) => {
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+  });
+  reader.readAsDataURL(file);
+  const imageBase64 = await base64Promise;
+  const draft = getDraft();
+  const res = await post('/metadata/upload', {
+    name: draft.name || 'Token',
+    symbol: draft.symbol || 'TKN',
+    description: draft.description || '',
+    website: draft.website || '',
+    imageBase64,
+    imageFilename: file.name,
+    imageMime: file.type,
+  });
+  $('#token-image').value = res.image;
+  $('#token-metadata-uri').value = res.metadataURI;
+  preview();
+  if (statusEl) {
+    statusEl.innerHTML = `✅ <strong>Erfolgreich gehostet!</strong> Bild-URL &amp; Metadata-URL automatisch eingetragen.`;
+  }
+  show('Bild und Metadaten wurden erfolgreich öffentlich gehostet!');
+}
+
 $('#image-file').onchange = async e => {
   const file = e.target.files[0]; if (!file) return;
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024) { e.target.value = ''; return show('Bitte PNG, JPG oder WebP bis 2 MB auswählen.', true); }
@@ -130,8 +163,54 @@ $('#image-file').onchange = async e => {
   try { img.src = url; await img.decode(); } catch { URL.revokeObjectURL(url); return show('Die Bilddatei kann nicht gelesen werden.', true); }
   if (localImage) URL.revokeObjectURL(localImage); localImage = url;
   img.alt = 'Vorschau des gewählten Tokenbilds'; $('#preview-art').replaceChildren(img);
-  show(`„${file.name}“ als lokale Vorschau geladen. Für Metadaten zusätzlich die öffentlich gehostete Bild-URL eintragen.`);
+  show(`„${file.name}“ geladen. Klicke auf „Jetzt hosten“ oder lasse Bild/Metadaten für das Standardbild leer.`);
 };
+
+if ($('#auto-host-btn')) {
+  $('#auto-host-btn').onclick = async () => {
+    const file = $('#image-file')?.files?.[0];
+    if (!file) {
+      show('Bitte wähle zuerst über „Tokenbild auswählen“ eine Datei von deinem PC aus.', true);
+      return;
+    }
+    await busy($('#auto-host-btn'), () => hostSelectedImageFile(file));
+  };
+}
+
+if ($('#random-avatar-btn')) {
+  $('#random-avatar-btn').onclick = async () => {
+    const statusEl = $('#host-status');
+    if (statusEl) {
+      statusEl.hidden = false;
+      statusEl.textContent = '⏳ Wähle Meme-Avatar & hoste Metadaten...';
+    }
+    await busy($('#random-avatar-btn'), async () => {
+      let assets = [];
+      try { assets = await api('/sample-assets'); } catch {}
+      const memes = assets.length ? assets.map(a => a.filename) : ['crocodile1.jpg', 'hippo1.jpg', 'parrot1.jpg', 'dog1.jpg', 'cat1.jpg'];
+      const chosen = memes[Math.floor(Math.random() * memes.length)];
+      const draft = getDraft();
+      const res = await post('/metadata/upload', {
+        name: draft.name || 'Token',
+        symbol: draft.symbol || 'TKN',
+        description: draft.description || '',
+        website: draft.website || '',
+        sampleAsset: chosen,
+      });
+      $('#token-image').value = res.image;
+      $('#token-metadata-uri').value = res.metadataURI;
+      const img = new Image();
+      img.src = res.image;
+      $('#preview-art').replaceChildren(img);
+      preview();
+      if (statusEl) {
+        statusEl.innerHTML = `✅ <strong>Avatar „${chosen}“ erfolgreich gehostet!</strong> URLs eingetragen.`;
+      }
+      show(`Meme-Avatar „${chosen}“ wurde gewählt und öffentlich gehostet!`);
+    });
+  };
+}
+
 $('#wallet-choice').onchange = e => { $('#launch-wallet').value = e.target.value; preview(); };
 $('#save-draft').onclick = () => busy($('#save-draft'), async () => { await post('/drafts', getDraft()); await refresh(); show('Entwurf lokal gespeichert. Bilddateien bitte separat behalten.'); });
 $('#export-metadata').onclick = () => {
@@ -146,6 +225,13 @@ async function terms() {
   try {
     const t = await api('/terms');
     render('#terms', `<dl class="definition"><dt>Launch-Gebühr</dt><dd>${esc(t.feeEth)} ETH</dd><dt>Netzwerkgebühren</dt><dd>Zusätzlich · nach Simulation</dd><dt>Name / Symbol</dt><dd>${t.config.maxNameBytes} / ${t.config.maxSymbolBytes} Bytes</dd><dt>Metadata-URL</dt><dd>Max. ${t.config.maxUriBytes} Bytes</dd><dt>Zusätzliche Creator-Tax</dt><dd>0 %</dd><dt>Launch-Schutz</dt><dd>Aktiviert</dd><dt>Geprüft</dt><dd>${esc(new Date(t.checkedAt).toLocaleTimeString('de-DE'))}</dd></dl>`);
+    if (Array.isArray(t.pairs) && t.pairs.length > 0) {
+      const select = $('#country');
+      if (select) {
+        const cur = select.value;
+        select.innerHTML = t.pairs.map(p => `<option value="${p.id}" ${p.id === cur ? 'selected' : ''}>${esc(p.symbol)} · ${esc(p.name)}</option>`).join('');
+      }
+    }
   } catch (e) { render('#terms', `<p class="error">Konditionen nicht verfügbar: ${esc(e.message)}</p>`); }
 }
 $('#refresh-terms').onclick = () => busy($('#refresh-terms'), terms);
@@ -198,8 +284,13 @@ launchRuleRow({ metric: 'priceChangePct', operator: 'gte', threshold: 50 });
 launchRuleRow({ metric: 'drawdownPct', operator: 'gte', threshold: 30 });
 
 $('#apply-snipe-amount-btn').onclick = () => {
-  const val = $('#snipe-default-amount').value;
-  if (!val || Number(val) <= 0) return;
+  const raw = $('#snipe-default-amount').value;
+  const val = String(raw ?? '').trim().replace(',', '.');
+  const num = Number(val);
+  if (!Number.isFinite(num) || num <= 0) {
+    show('Bitte einen gültigen Betrag größer als 0 eingeben.', true);
+    return;
+  }
   document.querySelectorAll('#snipe-wallets-list .snipe-amount-input').forEach(input => {
     input.value = val;
   });
@@ -213,7 +304,8 @@ async function updateSnipeWallets(country = 'us') {
   } catch {
     stockBalances = {};
   }
-  const symbol = deployment.stocks[country]?.symbol || 'SPCX';
+  const isNative = country === 'eth' || Boolean(deployment.stocks[country]?.native);
+  const symbol = isNative ? 'ETH' : (deployment.stocks[country]?.symbol || 'SPCX');
 
   // Render launch form snipe list
   const existingChecked = new Set();
@@ -228,19 +320,19 @@ async function updateSnipeWallets(country = 'us') {
   render('#snipe-wallets-list', vaultWallets.map(w => {
     const bal = stockBalances[w.address.toLowerCase()] ?? '0';
     const checked = existingChecked.has(w.id);
-    const amt = existingAmounts[w.id] ?? ($('#snipe-default-amount')?.value || '5');
+    const amt = existingAmounts[w.id] ?? ($('#snipe-default-amount')?.value?.trim().replace(',', '.') || '0.05');
     return `
       <div class="item snipe-wallet-row">
         <div class="snipe-row">
           <input type="checkbox" class="snipe-checkbox" data-wallet-id="${esc(w.id)}" ${checked ? 'checked' : ''}>
           <div>
             <strong>🔒 ${esc(w.label)}</strong>
-            <small>${esc(short(w.address))} · Guthaben: <strong>${esc(bal)} $${esc(symbol)}</strong></small>
+            <small>${esc(short(w.address))} · Guthaben: <strong>${esc(bal)} ${isNative ? 'ETH' : '$' + esc(symbol)}</strong></small>
           </div>
         </div>
         <div class="item-actions">
           <label class="snipe-label">Betrag:
-            <input type="number" class="snipe-amount-input snipe-amount" step="any" min="0.0001" value="${esc(amt)}">
+            <input type="text" inputmode="decimal" class="snipe-amount-input snipe-amount" value="${esc(amt)}" placeholder="0.05">
           </label>
         </div>
       </div>
@@ -271,19 +363,19 @@ async function updateSnipeWallets(country = 'us') {
   render('#auto-snipe-wallets-list', vaultWallets.map(w => {
     const bal = stockBalances[w.address.toLowerCase()] ?? '0';
     const checked = autoChecked.has(w.id);
-    const amt = autoAmounts[w.id] ?? '5';
+    const amt = autoAmounts[w.id] ?? '0.05';
     return `
       <div class="item auto-snipe-wallet-row">
         <div class="snipe-row">
           <input type="checkbox" class="auto-snipe-checkbox" data-wallet-id="${esc(w.id)}" ${checked ? 'checked' : ''}>
           <div>
             <strong>🔒 ${esc(w.label)}</strong>
-            <small>${esc(short(w.address))} · Guthaben: <strong>${esc(bal)} $${esc(symbol)}</strong></small>
+            <small>${esc(short(w.address))} · Guthaben: <strong>${esc(bal)} ${isNative ? 'ETH' : '$' + esc(symbol)}</strong></small>
           </div>
         </div>
         <div class="item-actions">
           <label class="snipe-label">Betrag:
-            <input type="number" class="auto-snipe-amount-input snipe-amount" step="any" min="0.0001" value="${esc(amt)}">
+            <input type="text" inputmode="decimal" class="auto-snipe-amount-input snipe-amount" value="${esc(amt)}" placeholder="0.05">
           </label>
         </div>
       </div>
@@ -323,8 +415,10 @@ $('#launch-form').onsubmit = e => { e.preventDefault(); busy(e.submitter, async 
       const cb = row.querySelector('.snipe-checkbox');
       if (cb && cb.checked) {
         const walletId = cb.dataset.walletId;
-        const amount = Number(row.querySelector('.snipe-amount-input').value);
-        if (amount > 0) snipeOrders.push({ walletId, amount });
+        const rawAmt = row.querySelector('.snipe-amount-input')?.value;
+        const cleanAmt = String(rawAmt ?? '').trim().replace(',', '.');
+        const amount = Number(cleanAmt);
+        if (Number.isFinite(amount) && amount > 0) snipeOrders.push({ walletId, amount: cleanAmt });
       }
     });
     if (snipeOrders.length > 10) throw new Error('Maximal 10 Wallets für Erstkauf erlaubt.');
@@ -617,8 +711,10 @@ $('#auto-launcher-form').onsubmit = e => { e.preventDefault(); busy(e.submitter,
       const cb = row.querySelector('.auto-snipe-checkbox');
       if (cb && cb.checked) {
         const walletId = cb.dataset.walletId;
-        const amount = Number(row.querySelector('.auto-snipe-amount-input').value);
-        if (amount > 0) snipeOrders.push({ walletId, amount });
+        const rawAmt = row.querySelector('.auto-snipe-amount-input')?.value;
+        const cleanAmt = String(rawAmt ?? '').trim().replace(',', '.');
+        const amount = Number(cleanAmt);
+        if (Number.isFinite(amount) && amount > 0) snipeOrders.push({ walletId, amount: cleanAmt });
       }
     });
   }

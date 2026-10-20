@@ -5,6 +5,8 @@ import { deployment } from '../shared/deployment.mjs';
 import { assert, address, draft, url } from './validation.mjs';
 export const legacyAbi = parseAbi(signatures.legacy);
 export const dropAbi = parseAbi([...signatures.drop, ...signatures.legacy.filter(s => /^function (launchFee|pairAsset|curveOfToken)/.test(s))]);
+export const vhooksAbi = parseAbi(signatures.vhooks);
+export const vhooksConfigAbi = parseAbi(signatures.vhooksConfig);
 export const client = createPublicClient({ transport: http(deployment.rpc, { timeout: 12_000, retryCount: 1 }) });
 export const robinhoodChain = {
   id: deployment.chainId,
@@ -14,23 +16,86 @@ export const robinhoodChain = {
 };
 
 export async function launchTerms() {
-  const [chainId, code, feeWei] = await Promise.all([
-    client.getChainId(), client.getCode({ address: deployment.factory }),
-    client.readContract({ address: deployment.factory, abi: legacyAbi, functionName: 'launchFee' }),
+  const [chainId, code] = await Promise.all([
+    client.getChainId(),
+    client.getCode({ address: deployment.factory }),
   ]);
   assert(chainId === deployment.chainId && code && code !== '0x', 'Chain oder Factory stimmt nicht mit der Konfiguration überein.');
-  let version = 'drop';
-  try { await client.readContract({ address: deployment.factory, abi: dropAbi, functionName: 'charterDrop' }); }
-  catch (e) {
-    if (e.walk?.(cause => cause instanceof ContractFunctionRevertedError || cause instanceof ContractFunctionZeroDataError)) version = 'legacy';
-    else throw e;
+
+  let version = 'vhooks';
+  let feeWei = 0n;
+  let config = {};
+
+  try {
+    const configAddress = await client.readContract({
+      address: deployment.factory,
+      abi: vhooksAbi,
+      functionName: 'config',
+    });
+    const [c, s] = await client.readContract({
+      address: configAddress,
+      abi: vhooksConfigAbi,
+      functionName: 'get',
+    });
+    version = 'vhooks';
+    feeWei = c.launchFee;
+    config = {
+      baseFeeBps: c.baseFeeBps,
+      creatorShareOfBaseBps: c.creatorShareOfBaseBps,
+      snipeScheduleBps: c.snipeScheduleBps,
+      allowSnipeOptOut: c.allowSnipeOptOut,
+      creatorBuyCapBps: c.creatorBuyCapBps,
+      sqrtPriceRunWad: c.sqrtPriceRunWad,
+      poolTickSpacing: c.poolTickSpacing,
+      maxNameBytes: c.maxNameBytes,
+      maxSymbolBytes: c.maxSymbolBytes,
+      maxUriBytes: c.maxUriBytes,
+      launchFee: c.launchFee,
+      weth: c.weth,
+      maxCharterDropBps: c.maxCharterDropBps,
+      curveSupply: s.curveSupply,
+      poolSupply: s.poolSupply,
+      virtualTokens: s.virtualTokens,
+      endVirtualTokens: s.endVirtualTokens,
+      creatorBuyCap: s.creatorBuyCap,
+    };
+  } catch (err) {
+    version = 'drop';
+    try {
+      await client.readContract({ address: deployment.factory, abi: dropAbi, functionName: 'charterDrop' });
+    } catch (e) {
+      if (e.walk?.(cause => cause instanceof ContractFunctionRevertedError || cause instanceof ContractFunctionZeroDataError)) {
+        version = 'legacy';
+      } else {
+        throw e;
+      }
+    }
+    const abi = version === 'drop' ? dropAbi : legacyAbi;
+    [feeWei, config] = await Promise.all([
+      client.readContract({ address: deployment.factory, abi: legacyAbi, functionName: 'launchFee' }),
+      client.readContract({ address: deployment.factory, abi, functionName: 'launchConfig' }),
+    ]);
   }
-  const abi = version === 'drop' ? dropAbi : legacyAbi;
-  const config = await client.readContract({ address: deployment.factory, abi, functionName: 'launchConfig' });
+
   const pairs = await Promise.all(Object.entries(deployment.stocks).map(async ([id, stock]) => {
-    const pair = await client.readContract({ address: deployment.factory, abi: legacyAbi, functionName: 'pairAsset', args: [stock.address] });
-    return { id, ...stock, enabled: pair.enabled };
+    try {
+      const pair = await client.readContract({
+        address: deployment.factory,
+        abi: legacyAbi,
+        functionName: 'pairAsset',
+        args: [stock.address],
+      });
+      return {
+        id,
+        ...stock,
+        enabled: Boolean(pair.enabled),
+        phantomReserve: pair.phantomReserve?.toString() || '0',
+      };
+    } catch {
+      return { id, ...stock, enabled: true, phantomReserve: '0' };
+    }
   }));
+
   return { version, feeWei: feeWei.toString(), feeEth: formatEther(feeWei), config, pairs, checkedAt: Date.now() };
 }
 
@@ -44,13 +109,50 @@ export async function prepareLaunch(input) {
   for (const [key, limit] of [['name', 'maxNameBytes'], ['symbol', 'maxSymbolBytes'], ['metadataURI', 'maxUriBytes']]) {
     assert(bytes(details[key]) <= Number(terms.config[limit]), `${key}: Vertrag erlaubt maximal ${terms.config[limit]} UTF-8 Bytes.`);
   }
-  assert(terms.pairs.find(p => p.id === details.country)?.enabled, 'Dieses Handelspaar ist deaktiviert.');
+  const pairInfo = terms.pairs.find(p => p.id === details.country);
+  assert(pairInfo?.enabled, 'Dieses Handelspaar ist deaktiviert.');
   const zero = '0x0000000000000000000000000000000000000000';
-  const params = { stock: deployment.stocks[details.country].address, name: details.name, symbol: details.symbol,
-    metadataURI: details.metadataURI, creatorTaxBps: 0, snipeTaxOn: true, referrer: zero,
-    ...(terms.version === 'drop' ? { charterDropBps: 0 } : {}) };
+  let params;
+  let abi;
+  if (terms.version === 'vhooks') {
+    abi = vhooksAbi;
+    params = {
+      stock: deployment.stocks[details.country].address,
+      name: details.name,
+      symbol: details.symbol,
+      metadataURI: details.metadataURI,
+      snipeTaxOn: true,
+      referrer: zero,
+      charterDropBps: 0,
+      dropMode: 0,
+      module: zero,
+      enforced: false,
+    };
+  } else if (terms.version === 'drop') {
+    abi = dropAbi;
+    params = {
+      stock: deployment.stocks[details.country].address,
+      name: details.name,
+      symbol: details.symbol,
+      metadataURI: details.metadataURI,
+      creatorTaxBps: 0,
+      snipeTaxOn: true,
+      referrer: zero,
+      charterDropBps: 0,
+    };
+  } else {
+    abi = legacyAbi;
+    params = {
+      stock: deployment.stocks[details.country].address,
+      name: details.name,
+      symbol: details.symbol,
+      metadataURI: details.metadataURI,
+      creatorTaxBps: 0,
+      snipeTaxOn: true,
+      referrer: zero,
+    };
+  }
   const args = [params, { payAsset: zero, amountIn: 0n, minStockOut: 0n, minTokensOut: 0n }];
-  const abi = terms.version === 'drop' ? dropAbi : legacyAbi;
   const request = { address: deployment.factory, abi, functionName: 'launch', account, args, value: BigInt(terms.feeWei) };
   await client.simulateContract(request);
   const data = encodeFunctionData({ abi, functionName: 'launch', args });
@@ -74,12 +176,13 @@ export async function inspectLaunch(hash) {
   if (receipt.status === 'reverted') return { status: 'reverted', hash };
   const transaction = await client.getTransaction({ hash });
   let decoded;
-  for (const abi of [dropAbi, legacyAbi]) {
+  const abis = [vhooksAbi, dropAbi, legacyAbi];
+  for (const abi of abis) {
     try { const candidate = decodeFunctionData({ abi, data: transaction.input }); if (candidate.functionName === 'launch') decoded = candidate; } catch {}
   }
   assert(decoded, 'Keine Launch-Transaktion.');
   for (const log of receipt.logs.filter(log => log.address.toLowerCase() === deployment.factory.toLowerCase())) {
-    for (const abi of [dropAbi, legacyAbi]) {
+    for (const abi of abis) {
       try {
         const event = decodeEventLog({ abi, data: log.data, topics: log.topics });
         if (event.eventName === 'Launched') return { status: 'success', hash, token: event.args.token, curve: event.args.curve,

@@ -374,4 +374,139 @@ test('executeMultiSell with autoSellMode "n_minus_1" preserves cheapest entry wa
   assert.equal(results[2].status, 'success');
 });
 
+test('sniper supports comma decimal amounts (e.g. 0,05)', async () => {
+  const store = createMockStore();
+  const vault = createVault({ store });
+  vault.init('masterpass123');
+  const w1 = vault.createWallet('Decimal Wallet');
+  const curve = '0x' + '9'.repeat(40);
+
+  const sentTransactions = [];
+  const customWalletClient = {
+    async sendTransaction({ to, data, value }) {
+      sentTransactions.push({ to, data, value });
+      return '0x' + 'f'.repeat(64);
+    },
+  };
+
+  const customClient = {
+    async readContract({ functionName }) {
+      if (functionName === 'balanceOf') return parseEther('10');
+      if (functionName === 'allowance') return parseEther('100');
+      throw new Error(`Unexpected call ${functionName}`);
+    },
+  };
+
+  const res = await executeSnipeBuy({
+    curve,
+    country: 'us',
+    walletId: w1.id,
+    amount: '0,05', // German comma notation
+    vault,
+    customClient,
+    customWalletClient,
+  });
+
+  assert.equal(res.status, 'success');
+  assert.equal(res.amount, '0.05');
+  assert.equal(sentTransactions.length, 1); // allowance was sufficient
+
+  const decoded = decodeFunctionData({ abi: routerAbi, data: sentTransactions[0].data });
+  assert.equal(decoded.functionName, 'buyExactIn');
+  // amountIn must be 0.05 ether (50000000000000000n)
+  assert.equal(decoded.args[2], 50000000000000000n);
+});
+
+test('sniper executes buyExactIn for eth (WETH) using native ETH and zeroAddress without approve', async () => {
+  const store = createMockStore();
+  const vault = createVault({ store });
+  vault.init('masterpass123');
+  const w1 = vault.createWallet('ETH Wallet');
+  const curve = '0x' + '9'.repeat(40);
+
+  const sentTransactions = [];
+  const customWalletClient = {
+    async sendTransaction({ to, data, value }) {
+      sentTransactions.push({ to, data, value });
+      return '0x' + 'e'.repeat(64);
+    },
+  };
+
+  const customClient = {
+    async getBalance() {
+      return parseEther('1.5'); // 1.5 ETH balance
+    },
+    async readContract() {
+      throw new Error('Should not read ERC20 for native ETH buy');
+    },
+  };
+
+  const res = await executeSnipeBuy({
+    curve,
+    country: 'eth',
+    walletId: w1.id,
+    amount: '0,05',
+    vault,
+    customClient,
+    customWalletClient,
+  });
+
+  assert.equal(res.status, 'success');
+  assert.equal(res.currency, 'ETH');
+  assert.equal(res.amount, '0.05');
+  assert.equal(sentTransactions.length, 1); // No approve transaction
+
+  const tx = sentTransactions[0];
+  assert.equal(tx.value, 50000000000000000n); // 0.05 ETH sent as msg.value
+  const decoded = decodeFunctionData({ abi: routerAbi, data: tx.data });
+  assert.equal(decoded.functionName, 'buyExactIn');
+  // payAsset must be zeroAddress for native ETH
+  assert.equal(decoded.args[1], '0x0000000000000000000000000000000000000000');
+  assert.equal(decoded.args[2], 50000000000000000n);
+});
+
+test('sniper executes sellExactIn for eth (WETH) requesting native ETH payout (zeroAddress)', async () => {
+  const store = createMockStore();
+  const vault = createVault({ store });
+  vault.init('masterpass123');
+  const w1 = vault.createWallet('ETH Seller Wallet');
+  const curve = '0x' + '9'.repeat(40);
+  const token = '0x' + '8'.repeat(40);
+
+  const sentTransactions = [];
+  const customWalletClient = {
+    async sendTransaction({ to, data, value }) {
+      sentTransactions.push({ to, data, value });
+      return '0x' + 'd'.repeat(64);
+    },
+  };
+
+  const customClient = {
+    async readContract({ functionName }) {
+      if (functionName === 'balanceOf') return parseEther('5000');
+      if (functionName === 'allowance') return parseEther('10000000');
+      throw new Error('Unexpected');
+    },
+  };
+
+  const res = await executeSnipeSell({
+    curve,
+    token,
+    country: 'eth',
+    walletId: w1.id,
+    vault,
+    customClient,
+    customWalletClient,
+  });
+
+  assert.equal(res.status, 'success');
+  assert.equal(sentTransactions.length, 1);
+
+  const tx = sentTransactions[0];
+  const decoded = decodeFunctionData({ abi: routerAbi, data: tx.data });
+  assert.equal(decoded.functionName, 'sellExactIn');
+  // payoutAsset must be zeroAddress for eth
+  assert.equal(decoded.args[2], '0x0000000000000000000000000000000000000000');
+});
+
 

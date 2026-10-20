@@ -14,6 +14,14 @@
     "function launchConfig() view returns ((uint16 baseFeeBps, uint16 creatorShareOfBaseBps, uint16 maxCreatorTaxBps, uint16 creatorTaxStepBps, uint16[] snipeScheduleBps, bool allowSnipeOptOut, uint16 creatorBuyCapBps, uint256 sqrtPriceRunWad, int24 poolTickSpacing, uint16 maxNameBytes, uint16 maxSymbolBytes, uint16 maxUriBytes, uint16 maxCharterDropBps, uint256 curveSupply, uint256 poolSupply, uint256 virtualTokens, uint256 endVirtualTokens, uint256 creatorBuyCap))",
     "function launch((address stock, string name, string symbol, string metadataURI, uint16 creatorTaxBps, bool snipeTaxOn, address referrer, uint16 charterDropBps) p, (address payAsset, uint256 amountIn, uint256 minStockOut, uint256 minTokensOut) b) payable returns (address token, address curve, uint256 tokensBought)"
   ],
+  "vhooks": [
+    "function config() view returns (address)",
+    "function launch((address stock, string name, string symbol, string metadataURI, bool snipeTaxOn, address referrer, uint16 charterDropBps, uint8 dropMode, address module, bool enforced) p, (address payAsset, uint256 amountIn, uint256 minStockOut, uint256 minTokensOut) b) payable returns (address token, address curve, uint256 tokensBought)",
+    "event Launched(address indexed token, address indexed curve, address indexed creator, (address token, address curve, address stock, address creator, address referrer, (address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks) futurePoolKey, bytes32 futurePoolId, string name, string symbol, string metadataURI, uint64 launchTime, uint128 phantomReserve, uint256 virtualTokens, uint256 endVirtualTokens, uint256 curveSupply, uint256 poolSupply, uint16 baseFeeBps, uint16 creatorShareOfBaseBps, bool snipeTaxOn, uint16[] snipeScheduleBps, uint256 creatorBuyCap, uint16 charterDropBps, uint256 charterDropAmount, address charterDrop, uint8 dropMode, address module, bool enforced) info)"
+  ],
+  "vhooksConfig": [
+    "function get() view returns ((uint16 baseFeeBps, uint16 creatorShareOfBaseBps, uint16 maxExtraFeeBps, uint16 maxTakeBps, uint16 maxTotalRateBps, uint16 maxIntegratorFeeBps, address feeMultisig, address feeEscrow, uint16[] snipeScheduleBps, bool allowSnipeOptOut, uint16 creatorBuyCapBps, uint256 sqrtPriceRunWad, int24 poolTickSpacing, uint16 maxNameBytes, uint16 maxSymbolBytes, uint16 maxUriBytes, uint256 launchFee, address weth, uint16 maxCharterDropBps, uint8 allowedDropModes, uint64 dropRecoveryDelay, uint32 gasBefore1, uint32 gasBefore2, uint32 gasAfter2, uint8 maxWrites, uint16 maxReturnBytes, bool tier2Enabled) c, (uint256 curveSupply, uint256 poolSupply, uint256 virtualTokens, uint256 endVirtualTokens, uint256 creatorBuyCap) s)"
+  ],
   "router": [
     "function buyExactIn(address curve, address payAsset, uint256 amountIn, uint256 minStockOut, uint256 minTokensOut, address recipient, address referrer, (address recipient, uint16 bps) fee) payable returns (uint256 tokensOut)",
     "function sellExactIn(address curve, uint256 tokensIn, address payoutAsset, uint256 minPayout, address recipient, address referrer, (address recipient, uint16 bps) fee) returns (uint256 payout)"
@@ -23,6 +31,7 @@
     "function allowance(address owner, address spender) view returns (uint256)",
     "function approve(address spender, uint256 amount) returns (bool)",
     "function decimals() view returns (uint8)",
-    "function symbol() view returns (string)"
+    "function symbol() view returns (string)",
+    "function transfer(address to, uint256 amount) returns (bool)"
   ]
 }

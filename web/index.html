@@ -26,14 +26,25 @@
               <div class="panel-heading"><h2><span class="section-no">01</span> Token-Details</h2><span class="subtle">Als Entwurf speicherbar</span></div>
               <div class="fields two"><label>Tokenname<input name="name" id="token-name" placeholder="z. B. Orbit" maxlength="80" required></label><label>Symbol<input name="symbol" id="token-symbol" placeholder="ORBIT" maxlength="20" required></label></div>
               <label>Beschreibung <span class="optional">optional</span><textarea name="description" maxlength="500" rows="3" placeholder="Wofür steht dein Token?"></textarea></label>
-              <div class="fields two"><label>Handelspaar<select name="country" id="country"><option value="us">SPCX · USA</option><option value="cn">BABA · China</option><option value="kr">SKHY · Südkorea</option></select></label><label>Projekt-Website <span class="optional">optional</span><input name="website" type="url" placeholder="https://…"></label></div>
+              <div class="fields two"><label>Handelspaar<select name="country" id="country"><option value="us">SPCX · USA</option><option value="eth">WETH · Ethereum</option><option value="cn">BABA · China</option><option value="kr">SKHY · Südkorea</option></select></label><label>Projekt-Website <span class="optional">optional</span><input name="website" type="url" placeholder="https://…"></label></div>
               <div class="divider"></div>
               <div class="panel-heading"><h2><span class="section-no">02</span> Bild & Metadaten</h2></div>
-              <label class="upload"><span class="upload-icon">↑</span><span><strong>Tokenbild auswählen</strong><small>PNG, JPG oder WebP · max. 2 MB · lokale Vorschau</small></span><input id="image-file" type="file" accept="image/png,image/jpeg,image/webp"></label>
-              <label>Öffentliche Bild-URL<input name="image" placeholder="https://… oder ipfs://…"></label>
-              <label>Metadata-URL <span class="optional">optional · leer = Referenz-Token</span><input name="metadataURI" placeholder="Leer lassen für die Standard-Metadaten"></label>
+              <div class="callout-box">
+                <strong>💡 Keine öffentliche Bild-URL? Kein Problem!</strong>
+                <ul>
+                  <li><strong>Option A (1-Klick Hosting):</strong> Wähle unten eine Bilddatei von deinem PC oder klicke auf „Zufälliges Meme-Avatar“. Der Bot lädt Bild und Metadaten <em>vollautomatisch und kostenlos</em> hoch und trägt die URLs ein!</li>
+                  <li><strong>Option B:</strong> Lasse Bild-URL und Metadata-URL einfach <strong>komplett leer</strong>. Der Bot verwendet dann automatisch ein offiziell verifiziertes Standard-Vorschaubild.</li>
+                </ul>
+              </div>
+              <label class="upload"><span class="upload-icon">↑</span><span><strong>Tokenbild auswählen</strong><small>PNG, JPG oder WebP · max. 2 MB · lokale Vorschau &amp; Auto-Hosting</small></span><input id="image-file" type="file" accept="image/png,image/jpeg,image/webp"></label>
+              <div class="fields two host-buttons-row">
+                <button id="auto-host-btn" type="button" class="button secondary">☁️ Ausgewähltes Bild &amp; Metadaten jetzt hosten</button>
+                <button id="random-avatar-btn" type="button" class="button secondary">🎲 Zufälliges Meme-Avatar wählen &amp; hosten</button>
+              </div>
+              <div id="host-status" class="subtle host-status-msg" hidden></div>
+              <label>Öffentliche Bild-URL<input name="image" id="token-image" placeholder="https://… oder ipfs://…"></label>
+              <label>Metadata-URL <span class="optional">optional · leer = Referenz-Token</span><input name="metadataURI" id="token-metadata-uri" placeholder="Leer lassen für Standard-Metadaten"></label>
               <p id="metadata-default-note" class="field-help">Bei leerem Feld wird die verifizierte <a class="text-link" href="https://img.standardreserve.xyz/m/d4c2ac8cf9708493ab310a2cfbd5cd56.json" target="_blank" rel="noopener noreferrer">Metadata-JSON des Referenz-Tokens ↗</a> verwendet. Diese enthält dessen Bild; lokale Bilder und Beschreibung ändern diese JSON nicht.</p>
-              <p class="field-help">Exportiere die JSON-Datei und hoste sie zusammen mit deinem Bild. Der Standard-Upload ist auf deren Website beschränkt. Eigene Metadaten werden dort möglicherweise nicht angezeigt.</p>
               <button id="export-metadata" type="button" class="text-button">↓ Metadaten als JSON exportieren</button>
               <div class="divider"></div>
               <div class="panel-heading"><h2><span class="section-no">03</span> Launch-Wallet</h2></div>
@@ -47,7 +58,7 @@
                 <p class="field-help" id="snipe-currency-help">Kaufwährung: $SPCX. Ausgewählte Tresor-Wallets kaufen sofort nach Bestätigung auf der Bonding-Curve ein.</p>
                 <p class="field-help"><strong>🛡️ Anti-Frontrun Schutz:</strong> Bricht den Kauf automatisch ab bzw. revertiert on-chain (minTokensOut Guard), falls ein fremder Bot oder Spieler vor unseren Wallets gekauft hat.</p>
                 <div class="fields two">
-                  <label>Standard-Betrag pro Wallet<input type="number" id="snipe-default-amount" step="any" min="0.0001" value="5" placeholder="5"></label>
+                  <label>Standard-Betrag pro Wallet<input type="text" inputmode="decimal" id="snipe-default-amount" value="0.05" placeholder="0.05"></label>
                   <div class="field-align-top"><button type="button" id="apply-snipe-amount-btn" class="button secondary">Auf gewählte Wallets anwenden</button></div>
                 </div>
                 <div id="snipe-wallets-list" class="item-list"></div>
@@ -157,7 +168,7 @@
             <div class="form-actions"><button type="submit" class="button primary">Einstellungen speichern</button><button type="button" id="auto-launcher-trigger-now" class="button secondary">Jetzt nächsten Launch ausführen ⚡</button></div>
           </form>
         </section>
-        <form id="queue-form" class="panel"><h2>CSV importieren</h2><p class="field-help">UTF-8, Komma oder Semikolon, maximal 60 KB / 200 Einträge. Benötigte Spalten: name, symbol, country (us, cn, kr). Optional: wallet (Adresse oder Tresor-Name).</p><label>Datei auswählen<input id="queue-file" type="file" accept=".csv,text/csv" required></label><button class="button primary" type="submit">Entwürfe importieren →</button><p id="queue-feedback" class="field-help" role="status"></p></form>
+        <form id="queue-form" class="panel"><h2>CSV importieren</h2><p class="field-help">UTF-8, Komma oder Semikolon, maximal 60 KB / 200 Einträge. Benötigte Spalten: name, symbol, country (us, eth, cn, kr). Optional: wallet (Adresse oder Tresor-Name).</p><label>Datei auswählen<input id="queue-file" type="file" accept=".csv,text/csv" required></label><button class="button primary" type="submit">Entwürfe importieren →</button><p id="queue-feedback" class="field-help" role="status"></p></form>
         <section class="panel compact"><h2>Lokale Bilder & Tresor-Wallets</h2><p class="field-help">In <code>image_path</code> kannst du <code>assets/dein-token.png</code> angeben. In der Spalte <code>wallet</code> kannst du eine öffentliche Deployer-Adresse oder den Namen einer Wallet aus deinem Tresor eintragen.</p></section>
         <section class="panel"><div class="panel-heading"><h2>Wartende Entwürfe</h2><span class="subtle">Reihenfolge aus der CSV</span></div><div id="queue" class="item-list"></div></section>
       </section>

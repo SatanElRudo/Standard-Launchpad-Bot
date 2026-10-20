@@ -10,3 +10,9 @@
 .monitor-purchases-info{font-size:11px;color:var(--muted);margin-top:10px}
 .snipe-purchases-list{margin:6px 0 0;padding-left:18px;list-style:disc;line-height:1.6}
 .snipe-purchases-list li{margin:3px 0;font-size:11px}
+.callout-box{background:rgba(214,244,132,.08);border:1px solid rgba(214,244,132,.25);border-radius:8px;padding:14px 16px;margin-bottom:14px;font-size:12px;line-height:1.6}
+.callout-box strong{color:var(--accent)}
+.callout-box ul{margin:8px 0 0 18px;padding:0;list-style:disc}
+.callout-box li{margin-bottom:6px}
+.host-buttons-row{margin:10px 0}
+.host-status-msg{margin-bottom:10px;font-size:11px}

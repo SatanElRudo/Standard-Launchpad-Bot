@@ -12,6 +12,7 @@ import { importQueue, readQueueImage } from './queue.mjs';
 import { createVault } from './vault.mjs';
 import { createAutoLauncher } from './auto-launcher.mjs';
 import { getStockBalances, executeMultiSnipe, executeMultiSell } from './sniper.mjs';
+import { hostImageAndMetadata, listSampleAssets } from './metadata.mjs';
 
 const json = value => JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.toString() : v);
 
@@ -158,7 +159,7 @@ export function createApp({
   async function body(req) {
     assert(req.headers['content-type']?.split(';')[0] === 'application/json', 'Content-Type application/json erforderlich.');
     let result = '';
-    for await (const chunk of req) { result += chunk; assert(Buffer.byteLength(result) <= 64_000, 'Anfrage zu groß.'); }
+    for await (const chunk of req) { result += chunk; assert(Buffer.byteLength(result) <= 5_000_000, 'Anfrage zu groß (max. 5 MB).'); }
     let parsed; try { parsed = JSON.parse(result); } catch { assert(false, 'Ungültiges JSON.'); }
     assert(parsed && typeof parsed === 'object' && !Array.isArray(parsed), 'JSON-Objekt erforderlich.');
     return parsed;
@@ -190,6 +191,33 @@ export function createApp({
       if (req.method === 'GET' && path === '/api/terms') return send(200, await launchTerms());
       if (req.method === 'GET' && path.startsWith('/api/token/')) return send(200, await market(address(path.slice(11))));
       if (req.method === 'POST' && path === '/api/prepare') return send(200, await prepareLaunch(await body(req)));
+
+      // Metadata & Image Hosting APIs
+      if (req.method === 'GET' && path === '/api/sample-assets') {
+        return send(200, await listSampleAssets(assetDir));
+      }
+      if (req.method === 'POST' && path === '/api/metadata/upload') {
+        const input = await body(req);
+        let imageBuffer = null;
+        if (input.imageBase64) {
+          const parts = input.imageBase64.split(',');
+          const rawBase64 = parts.length > 1 ? parts[1] : parts[0];
+          imageBuffer = Buffer.from(rawBase64, 'base64');
+        }
+        const hosted = await hostImageAndMetadata({
+          name: input.name,
+          symbol: input.symbol,
+          description: input.description,
+          website: input.website,
+          imageBuffer,
+          imageMime: input.imageMime || 'image/png',
+          imageFilename: input.imageFilename || 'image.png',
+          sampleAsset: input.sampleAsset,
+          existingImageUrl: input.image,
+          assetDir,
+        });
+        return send(200, hosted);
+      }
 
       // Vault APIs
       if (req.method === 'GET' && path === '/api/vault/status') return send(200, vault.status());

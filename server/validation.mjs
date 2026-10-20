@@ -16,7 +16,7 @@ export function url(value, name, required = false) {
   return result;
 }
 export function draft(input) {
-  assert(['us', 'cn', 'kr'].includes(input.country), 'Ungültiges Handelspaar.');
+  assert(['us', 'eth', 'cn', 'kr'].includes(input.country), 'Ungültiges Handelspaar.');
   let wallet = '';
   if (input.wallet) {
     const raw = String(input.wallet).trim();
@@ -54,7 +54,7 @@ export function monitor(input) {
   return {
     token: address(input.token),
     curve,
-    country: ['us', 'cn', 'kr'].includes(input.country) ? input.country : 'us',
+    country: ['us', 'eth', 'cn', 'kr'].includes(input.country) ? input.country : 'us',
     name: text(input.name, 80, 'Monitorname'),
     rules,
     mode: input.mode,
