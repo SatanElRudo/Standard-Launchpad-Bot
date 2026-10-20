@@ -26,6 +26,7 @@ export function createAutoLauncher({
     lastSuccess: null,
     inFlightTx: null,
     snipeOrders: [],
+    defaultReferrer: '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7',
     pairAmounts: {
       us: '0.05',
       eth: '0.005',
@@ -49,6 +50,7 @@ export function createAutoLauncher({
   state.autoLauncher.walletMode ??= 'single';
   state.autoLauncher.rotationWalletIds ??= [];
   state.autoLauncher.rotationIndex ??= 0;
+  state.autoLauncher.defaultReferrer ??= '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
   state.autoLauncher.pairAmounts ??= {
     us: '0.05',
     eth: '0.005',
@@ -129,14 +131,18 @@ export function createAutoLauncher({
       inFlightTx: al.inFlightTx ?? null,
       countdownSeconds,
       queueLength: state.queue?.length ?? 0,
+      defaultReferrer: al.defaultReferrer || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7',
       snipeOrders: al.snipeOrders ?? [],
       pairAmounts: al.pairAmounts ?? { us: '0.05', eth: '0.005', cn: '0.1', kr: '0.1' },
       defaultMonitor: al.defaultMonitor ?? { enabled: true },
     };
   }
 
-  function configure({ enabled, intervalMinutes, intervalVarianceSeconds, walletMode, defaultWalletId, rotationWalletIds, snipeOrders, pairAmounts, defaultMonitor }) {
+  function configure({ enabled, intervalMinutes, intervalVarianceSeconds, walletMode, defaultWalletId, rotationWalletIds, snipeOrders, pairAmounts, defaultMonitor, defaultReferrer }) {
     const al = state.autoLauncher;
+    if (typeof defaultReferrer === 'string') {
+      al.defaultReferrer = defaultReferrer.trim();
+    }
     if (typeof intervalMinutes === 'number' && Number.isFinite(intervalMinutes) && intervalMinutes >= 1) {
       al.intervalMinutes = Math.min(1440, Math.max(1, Math.round(intervalMinutes)));
     }
@@ -305,7 +311,9 @@ export function createAutoLauncher({
           console.warn('Auto-hosting metadata error:', he.message);
         }
       }
-      const launchDraft = { ...item, wallet: wallet.address };
+      const defaultRef = al.defaultReferrer || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
+      const effectiveRef = (item.referrer && item.referrer !== '0x0000000000000000000000000000000000000000') ? item.referrer : defaultRef;
+      const launchDraft = { ...item, wallet: wallet.address, referrer: effectiveRef };
       const { hash } = await executeLaunch({ draft: launchDraft, privateKey });
       if (typeof advance === 'function') {
         advance();
@@ -396,6 +404,7 @@ export function createAutoLauncher({
               country: item.country,
               snipeOrders: effectiveSnipeOrders,
               antiFrontrun: true,
+              referrer: effectiveRef,
               vault,
             });
             if (createdMon) {

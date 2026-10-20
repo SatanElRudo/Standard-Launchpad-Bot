@@ -50,6 +50,7 @@ export async function executeSnipeBuy({
   vault,
   customClient = client,
   customWalletClient = null,
+  referrer = null,
 } = {}) {
   assert(curve && /^0x[0-9a-fA-F]{40}$/.test(curve), 'Ungültige Curve-Adresse.');
   const stockInfo = deployment.stocks[country];
@@ -114,6 +115,10 @@ export async function executeSnipeBuy({
     }
   }
 
+  const effectiveReferrer = (referrer && referrer !== zeroAddress && /^0x[0-9a-fA-F]{40}$/.test(referrer))
+    ? referrer
+    : zeroAddress;
+
   // 3. buyExactIn with on-chain minTokensOut protection
   let effectiveMinTokensOut = minTokensOut;
   if (effectiveMinTokensOut > 0n && typeof customClient.simulateContract === 'function') {
@@ -130,7 +135,7 @@ export async function executeSnipeBuy({
           0n,
           0n,
           account.address,
-          zeroAddress,
+          effectiveReferrer,
           { recipient: zeroAddress, bps: 0 },
         ],
         account: account.address,
@@ -156,7 +161,7 @@ export async function executeSnipeBuy({
       0n, // minStockOut
       effectiveMinTokensOut, // on-chain frontrun & slippage protection
       account.address,
-      zeroAddress,
+      effectiveReferrer,
       { recipient: zeroAddress, bps: 0 },
     ],
   });
@@ -208,6 +213,7 @@ export async function executeMultiSnipe({
   expectedInitialSupply = 777777777777777777777777777n,
   phantomReserve = null,
   virtualTokens = 1088888888888888888888888887n,
+  referrer = null,
 } = {}) {
   assert(Array.isArray(snipeOrders), 'Snipe-Aufträge müssen als Liste übergeben werden.');
   assert(snipeOrders.length <= 10, 'Maximal 10 Snipe-Wallets erlaubt.');
@@ -283,6 +289,7 @@ export async function executeMultiSnipe({
         vault,
         customClient,
         customWalletClient,
+        referrer,
       });
       results.push(res);
     } catch (e) {
@@ -313,6 +320,7 @@ export async function executeSnipeSell({
   vault,
   customClient = client,
   customWalletClient = null,
+  referrer = null,
 } = {}) {
   assert(curve && /^0x[0-9a-fA-F]{40}$/.test(curve), 'Ungültige Curve-Adresse.');
   assert(token && /^0x[0-9a-fA-F]{40}$/.test(token), 'Ungültige Token-Adresse.');
@@ -376,6 +384,10 @@ export async function executeSnipeSell({
     }
   }
 
+  const effectiveReferrer = (referrer && referrer !== zeroAddress && /^0x[0-9a-fA-F]{40}$/.test(referrer))
+    ? referrer
+    : zeroAddress;
+
   // 3. sellExactIn
   if (customClient.simulateContract) {
     try {
@@ -390,7 +402,7 @@ export async function executeSnipeSell({
           payoutAsset,
           0n, // minPayout
           account.address,
-          zeroAddress,
+          effectiveReferrer,
           { recipient: zeroAddress, bps: 0 },
         ],
       });
@@ -410,7 +422,7 @@ export async function executeSnipeSell({
       payoutAsset,
       0n, // minPayout
       account.address,
-      zeroAddress,
+      effectiveReferrer,
       { recipient: zeroAddress, bps: 0 },
     ],
   });
@@ -455,6 +467,7 @@ export async function executeMultiSell({
   vault,
   customClient = client,
   customWalletClient = null,
+  referrer = null,
 } = {}) {
   assert(curve && /^0x[0-9a-fA-F]{40}$/.test(curve), 'Ungültige Curve-Adresse.');
   assert(token && /^0x[0-9a-fA-F]{40}$/.test(token), 'Ungültige Token-Adresse.');
@@ -480,6 +493,7 @@ export async function executeMultiSell({
         vault,
         customClient,
         customWalletClient,
+        referrer,
       });
     } catch (e) {
       return {

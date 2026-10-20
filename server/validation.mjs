@@ -89,9 +89,9 @@ export function draft(input) {
     }
   }
 
-  // 7. Referrer (Fees go to): default zeroAddress (or fee recipient)
+  // 7. Referrer (Fees / Points go to): default zeroAddress (or fee recipient)
   let referrer = zeroAddress;
-  const rawRef = input.referrer ?? input.feeRecipient ?? input.fees_go_to;
+  const rawRef = input.referrer ?? input.feeRecipient ?? input.fees_go_to ?? input.ref;
   if (rawRef && rawRef !== zeroAddress) {
     try { referrer = address(rawRef); } catch {}
   }

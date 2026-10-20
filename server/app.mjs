@@ -69,12 +69,15 @@ export function createApp({
                 const monitorId = current.id;
                 void (async () => {
                   try {
+                    const defaultRef = state.autoLauncher?.defaultReferrer || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
+                    const effectiveRef = (current.referrer && current.referrer !== '0x0000000000000000000000000000000000000000') ? current.referrer : defaultRef;
                     const sellRes = await sellFn({
                       curve: targetCurve,
                       token: targetToken,
                       country: targetCountry,
                       purchases: targetPurchases,
                       autoSellMode: targetMode,
+                      referrer: effectiveRef,
                       vault,
                     });
                     const mon = state.monitors.find(m => m.id === monitorId);
@@ -418,6 +421,8 @@ export function createApp({
       if (req.method === 'POST' && path === '/api/snipe') {
         assert(vault.isUnlocked(), 'Tresor ist gesperrt.');
         const input = await body(req);
+        const defaultRef = state.autoLauncher?.defaultReferrer || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
+        const effectiveRef = (input.referrer && input.referrer !== '0x0000000000000000000000000000000000000000') ? input.referrer : defaultRef;
         const results = await snipeFn({
           curve: input.curve,
           token: input.token,
@@ -425,6 +430,7 @@ export function createApp({
           snipeOrders: input.snipeOrders || [],
           antiFrontrun: input.antiFrontrun !== false,
           maxSlippagePct: typeof input.maxSlippagePct === 'number' ? input.maxSlippagePct : 1.0,
+          referrer: effectiveRef,
           vault,
         });
         return send(200, { results });
@@ -453,7 +459,9 @@ export function createApp({
             console.warn('Auto-hosting metadata error:', he.message);
           }
         }
-        const launchDraft = { ...input, wallet: wallet.address };
+        const defaultRef = state.autoLauncher?.defaultReferrer || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
+        const effectiveRef = (input.referrer && input.referrer !== '0x0000000000000000000000000000000000000000') ? input.referrer : defaultRef;
+        const launchDraft = { ...input, wallet: wallet.address, referrer: effectiveRef };
         const result = await executeLaunch({ draft: launchDraft, privateKey });
 
         const hasSnipe = Array.isArray(input.snipeOrders) && input.snipeOrders.length > 0;
@@ -492,6 +500,7 @@ export function createApp({
                   snipeOrders: input.snipeOrders,
                   antiFrontrun: input.antiFrontrun !== false,
                   maxSlippagePct: typeof input.maxSlippagePct === 'number' ? input.maxSlippagePct : 1.0,
+                  referrer: effectiveRef,
                   vault,
                 });
                 if (createdMon) {
@@ -564,6 +573,7 @@ export function createApp({
           payout: input.payout ?? existing.payout,
           devBuy: input.devBuy ?? existing.devBuy,
           snipeTax: input.snipeTax ?? existing.snipeTax,
+          referrer: input.referrer ?? existing.referrer,
           wallet: input.wallet ?? existing.wallet,
         });
         let imagePath = existing.imagePath;

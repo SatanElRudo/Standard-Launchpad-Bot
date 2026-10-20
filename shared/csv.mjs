@@ -2,7 +2,7 @@
 export const csvColumns = [
   'name', 'symbol', 'country', 'description', 'image_path', 'image_url', 'metadata_uri', 'website', 'wallet',
   'after_graduates', 'enforced', 'charter_drop', 'charter_drop_bps', 'charter_payout', 'drop_mode',
-  'hook_module', 'module', 'dev_buy', 'snipe_tax', 'fees_go_to', 'referrer',
+  'hook_module', 'module', 'dev_buy', 'snipe_tax', 'fees_go_to', 'referrer', 'ref',
   'monitor_enabled', 'monitor_rules', 'monitor_mcap_gte', 'monitor_price_change_gte', 'monitor_drawdown_gte',
   'monitor_volume_gte', 'monitor_mode', 'monitor_hold_seconds', 'monitor_cooldown_seconds', 'monitor_once',
   'monitor_auto_sell', 'monitor_sell_mode'

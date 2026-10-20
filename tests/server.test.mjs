@@ -74,6 +74,9 @@ test('blank metadata uses the verified default in prepared calldata; explicit UR
     assert.equal(decoded.args[0].metadataURI, metadataURI.trim() || deployment.metadataDefault.uri);
     assert.equal(result.metadataDefaultApplied, !metadataURI.trim());
   }
+  const refRes = await prepareLaunch({ name: 'RefTest', symbol: 'REF', country: 'us', wallet: token, referrer: '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7' });
+  const refDecoded = decodeFunctionData({ abi: dropAbi, data: refRes.transaction.data });
+  assert.equal(refDecoded.args[0].referrer.toLowerCase(), '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7');
 });
 
 test('Vault and Auto-Launcher API endpoints', async () => {

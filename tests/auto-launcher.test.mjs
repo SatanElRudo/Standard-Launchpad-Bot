@@ -463,6 +463,49 @@ test('auto launcher selects pair-specific snipe amounts based on token country',
   assert.equal(executedSnipeOrders[0].amount, '0.003');
 });
 
+test('auto launcher forwards default and token-specific referrer to launch and snipe', async () => {
+  const store = createMockStore();
+  const vault = createVault({ store, autoLockMs: 60000 });
+  vault.init('masterpass123');
+  const deployer = vault.createWallet('Deployer');
+  const sniper = vault.createWallet('Sniper');
+
+  store.state.queue.push({
+    id: 'item-ref-1',
+    name: 'Token Ref',
+    symbol: 'TREF',
+    country: 'us',
+    wallet: deployer.address,
+  });
+
+  let launchReferrer = null;
+  let snipeReferrer = null;
+
+  const launcher = createAutoLauncher({
+    store,
+    vault,
+    executeLaunch: async ({ draft }) => {
+      launchReferrer = draft.referrer;
+      return { hash: '0x' + '1'.repeat(64) };
+    },
+    inspectLaunch: async hash => ({ status: 'success', hash, token: '0x' + '2'.repeat(40), curve: '0x' + '3'.repeat(40), name: 'Token Ref', symbol: 'TREF' }),
+    snipeFn: async ({ referrer }) => {
+      snipeReferrer = referrer;
+      return [{ walletId: sniper.id, status: 'success' }];
+    },
+  });
+
+  launcher.configure({
+    enabled: true,
+    defaultReferrer: '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7',
+    snipeOrders: [{ walletId: sniper.id, amount: '0.05' }],
+  });
+
+  await launcher.executeNext();
+  assert.equal(launchReferrer, '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7');
+  assert.equal(snipeReferrer, '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7');
+});
+
 
 
 

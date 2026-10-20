@@ -154,6 +154,10 @@
                   </select>
                 </label>
               </div>
+              <label>Referrer / Punkte-Adresse (Ref) <span class="optional">optional · Punkte für Standard Reserve</span>
+                <input name="referrer" id="launch-referrer" placeholder="0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7" value="0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7" spellcheck="false">
+              </label>
+              <p class="field-help">Diese Wallet erhält Punkte &amp; Referrer-Rewards auf Standard Reserve beim Launch und bei Trades.</p>
               <div class="divider"></div>
               <div class="panel-heading"><h2><span class="section-no">04</span> Launch-Wallet</h2></div>
               <div id="wallet-network" class="wallet-network"><span id="wallet-network-text">Wallet noch nicht verbunden.</span><button type="button" id="switch-chain" class="button secondary" hidden>Zu Robinhood wechseln</button></div>
@@ -287,6 +291,12 @@
                 </select>
               </label>
             </div>
+            <div class="divider"></div>
+            <div class="panel-heading"><h2><span class="section-no">🎯</span> Referral / Punkte-Adresse (Ref)</h2></div>
+            <label>Standard-Referrer Wallet-Adresse (Punkte &amp; Rewards)
+              <input type="text" id="auto-launcher-referrer" name="defaultReferrer" placeholder="0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7" value="0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7" spellcheck="false">
+            </label>
+            <p class="field-help">Diese Wallet erhält Punkte &amp; Belohnungen auf Standard Reserve bei allen automatischen Launches und Trades (sofern nicht in der CSV anders angegeben).</p>
             <p id="auto-launcher-info" class="field-help">Führt alle X Minuten den nächsten Eintrag der Queue mit der passenden Tresor-Wallet aus.</p>
             <div class="form-actions"><button type="submit" class="button primary">Einstellungen speichern</button><button type="button" id="auto-launcher-trigger-now" class="button secondary">Jetzt nächsten Launch ausführen ⚡</button></div>
           </form>

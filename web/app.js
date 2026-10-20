@@ -853,6 +853,8 @@ $('#auto-launcher-form').onsubmit = e => { e.preventDefault(); busy(e.submitter,
     ],
   };
 
+  const defaultReferrer = $('#auto-launcher-referrer')?.value?.trim() || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
+
   await post('/auto-launcher/config', {
     enabled,
     intervalMinutes,
@@ -862,7 +864,8 @@ $('#auto-launcher-form').onsubmit = e => { e.preventDefault(); busy(e.submitter,
     rotationWalletIds,
     pairAmounts,
     snipeOrders,
-    defaultMonitor
+    defaultMonitor,
+    defaultReferrer,
   });
   autoLauncherFormInitialized = false;
   await refresh();
@@ -927,8 +930,8 @@ $('#queue-form').onsubmit = e => {
 };
 
 function loadDraft(draft) {
-  for (const name of ['name', 'symbol', 'country', 'description', 'image', 'website', 'metadataURI', 'wallet']) {
-    if ($('#launch-form').elements[name]) $('#launch-form').elements[name].value = draft[name] || (name === 'wallet' ? account ?? '' : '');
+  for (const name of ['name', 'symbol', 'country', 'description', 'image', 'website', 'metadataURI', 'wallet', 'referrer']) {
+    if ($('#launch-form').elements[name]) $('#launch-form').elements[name].value = draft[name] || (name === 'wallet' ? account ?? '' : name === 'referrer' ? '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7' : '');
   }
   if ($('#launch-enforced')) $('#launch-enforced').value = String(draft.enforced ?? true);
   if ($('#launch-charter-drop')) $('#launch-charter-drop').value = String(draft.charterDropBps ?? 1000);
@@ -1215,6 +1218,11 @@ function renderNextTokenCard(item, al) {
             </select>
           </label>
         </div>
+        <div class="fields">
+          <label>Referrer / Punkte-Adresse (Ref)
+            <input type="text" id="next-token-referrer" value="${esc(item.referrer && item.referrer !== '0x0000000000000000000000000000000000000000' ? item.referrer : (autoLauncherStatus?.defaultReferrer || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7'))}" ${isRunning ? 'disabled' : ''} placeholder="0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7" spellcheck="false">
+          </label>
+        </div>
         <div class="form-actions">
           <button type="button" id="next-token-save-btn" class="button primary" ${isRunning ? 'disabled' : ''}>Änderungen für nächsten Launch speichern 💾</button>
           <button type="button" id="next-token-trigger-btn" class="button secondary" ${isRunning ? 'disabled' : ''}>⚡ Jetzt genau diesen Launch ausführen</button>
@@ -1242,6 +1250,7 @@ function renderNextTokenCard(item, al) {
     const payout = $('#next-token-payout').value;
     const devBuy = $('#next-token-devBuy').value;
     const snipeTax = $('#next-token-snipeTax').value;
+    const referrer = $('#next-token-referrer')?.value.trim() || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
     const thresholdMcap = Number($('#next-token-mcap').value) || 150000;
     const autoSellMode = $('#next-token-sellMode').value;
 
@@ -1259,6 +1268,7 @@ function renderNextTokenCard(item, al) {
         payout,
         devBuy,
         snipeTax,
+        referrer,
         monitor: {
           rules: [{ metric: 'marketCapUsd', operator: 'gte', threshold: thresholdMcap }],
           autoSellMode,
@@ -1386,6 +1396,10 @@ async function refresh() {
           if ($('#auto-snipe-amount-kr')) $('#auto-snipe-amount-kr').value = al.pairAmounts.kr || '0.1';
         }
 
+        if ($('#auto-launcher-referrer')) {
+          $('#auto-launcher-referrer').value = al.defaultReferrer || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
+        }
+
         $('#auto-wallet-mode-rotate').checked = isRotate;
         $('#auto-wallet-mode-single').checked = !isRotate;
         $('#auto-launcher-rotate-box').hidden = !isRotate;
@@ -1495,7 +1509,9 @@ async function refresh() {
       const autoSellTag = (q.monitor?.autoSell ?? (q.monitor?.enabled !== false && al?.defaultMonitor?.autoSell))
         ? `<span class="pill pill-mini">⚡ Auto-Exit (${(q.monitor?.autoSellMode || al?.defaultMonitor?.autoSellMode) === 'n_minus_1' ? 'N-1' : '100%'})</span>`
         : '';
-      return `<div class="item"><div><strong>${index + 1}. ${esc(q.name)} · $${esc(q.symbol)}</strong><small>${esc(state.deployment.stocks[q.country].symbol)} · ${walletTag}${monTag ? ` · ${monTag}` : ''}${autoSellTag ? ` · ${autoSellTag}` : ''}<br>${q.metadataURI ? 'Eigene Metadata-URL' : 'Standard-Metadaten des Referenz-Tokens'}${q.imagePath ? `<br>Lokale Vorschau: ${esc(q.imagePath)}` : ''}</small></div><div class="item-actions"><button class="text-button" data-action="load-queue" data-id="${q.id}">Zur Prüfung laden ↗</button><button class="text-button" data-action="delete-queue" data-id="${q.id}">Entfernen</button></div></div>`;
+      const refAddr = q.referrer && q.referrer !== '0x0000000000000000000000000000000000000000' ? q.referrer : (al?.defaultReferrer || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7');
+      const refTag = `<span class="pill pill-mini" title="Punkte/Ref gehen an ${esc(refAddr)}">🎯 Ref: ${esc(short(refAddr))}</span>`;
+      return `<div class="item"><div><strong>${index + 1}. ${esc(q.name)} · $${esc(q.symbol)}</strong><small>${esc(state.deployment.stocks[q.country].symbol)} · ${walletTag}${monTag ? ` · ${monTag}` : ''}${autoSellTag ? ` · ${autoSellTag}` : ''} · ${refTag}<br>${q.metadataURI ? 'Eigene Metadata-URL' : 'Standard-Metadaten des Referenz-Tokens'}${q.imagePath ? `<br>Lokale Vorschau: ${esc(q.imagePath)}` : ''}</small></div><div class="item-actions"><button class="text-button" data-action="load-queue" data-id="${q.id}">Zur Prüfung laden ↗</button><button class="text-button" data-action="delete-queue" data-id="${q.id}">Entfernen</button></div></div>`;
     }).join('') : '<div class="empty">Noch keine Entwürfe importiert. Nutze die CSV-Vorlage als Ausgangspunkt.</div>');
 
     // Wallet Choice dropdown in launch form
