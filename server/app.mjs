@@ -77,20 +77,53 @@ async function getLivePilotPoolStats(rewardVaultOverride) {
       .then(r => r.ok ? r.json() : null)
       .catch(() => null);
 
-    const totalPoints = Number(summaryRes?.summary?.totalPoints || summaryRes?.totalPoints || 43521515);
-    const poolPointValueUsd = totalPoints > 0 ? Number((currentRewardVault / totalPoints).toFixed(5)) : 0.02622;
+    const totalPoints = Number(summaryRes?.summary?.totalPoints || summaryRes?.totalPoints || 43549000);
+    const countries = summaryRes?.summary?.countries || summaryRes?.countries || [];
+    const leaderCode = summaryRes?.summary?.leader || summaryRes?.leader || 'US';
+    const leaderCountry = countries.find(c => (c.country || '').toUpperCase() === leaderCode.toUpperCase());
+    const leaderPoints = Number(leaderCountry?.points || 25150000);
+
+    // 65% Incentives: Every point earns its share, whichever team wins
+    const incentivesPoolUsd = currentRewardVault * 0.65;
+    const incentivesPointValueUsd = totalPoints > 0 ? Number((incentivesPoolUsd / totalPoints).toFixed(5)) : 0.01703;
+
+    // 100% Average: Entire pool distributed over all points
+    const poolPointValueUsd = totalPoints > 0 ? Number((currentRewardVault / totalPoints).toFixed(5)) : 0.02621;
+
+    // 35% Jackpot: Split by the team with the most points (leader country, e.g. US)
+    const jackpotPoolUsd = currentRewardVault * 0.35;
+    const jackpotExtraPerPoint = leaderPoints > 0 ? (jackpotPoolUsd / leaderPoints) : 0;
+    const leaderPointValueUsd = Number((incentivesPointValueUsd + jackpotExtraPerPoint).toFixed(5));
 
     const stats = {
       totalPoints,
       feesUsd: currentRewardVault,
       rewardVaultUsd: currentRewardVault,
-      poolPointValueUsd,
+      leaderCountry: leaderCode,
+      leaderPoints,
+      incentivesPoolUsd: Number(incentivesPoolUsd.toFixed(2)),
+      jackpotPoolUsd: Number(jackpotPoolUsd.toFixed(2)),
+      incentivesPointValueUsd,  // 65% guaranteed
+      poolPointValueUsd,        // 100% average
+      leaderPointValueUsd,      // 65% + 35% Jackpot for winning team
       updatedAt: Date.now(),
     };
     pilotPoolCache = { at: Date.now(), vault: currentRewardVault, data: stats };
     return stats;
   } catch {
-    return pilotPoolCache.data || { totalPoints: 43521515, feesUsd: currentRewardVault, rewardVaultUsd: currentRewardVault, poolPointValueUsd: 0.02622, updatedAt: 0 };
+    return pilotPoolCache.data || {
+      totalPoints: 43549000,
+      feesUsd: currentRewardVault,
+      rewardVaultUsd: currentRewardVault,
+      leaderCountry: 'US',
+      leaderPoints: 25150000,
+      incentivesPoolUsd: 741809.38,
+      jackpotPoolUsd: 399435.82,
+      incentivesPointValueUsd: 0.01703,
+      poolPointValueUsd: 0.02621,
+      leaderPointValueUsd: 0.03291,
+      updatedAt: 0,
+    };
   }
 }
 

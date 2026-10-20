@@ -1029,9 +1029,11 @@ function loadDraft(draft) {
 }
 
 let currentPointSettings = {
-  mode: 'auto',
-  customVal: 0.02622,
-  liveVal: 0.02622,
+  mode: 'guaranteed',
+  customVal: 0.01703,
+  guaranteedVal: 0.01703,
+  averageVal: 0.02621,
+  jackpotVal: 0.03291,
 };
 let lastState = null;
 let lastFeeData = null;
@@ -1046,8 +1048,11 @@ function renderDashboard(state, feeData) {
 
   const pilotStats = feeData?.pilotStats || {};
   const serverSettings = feeData?.settings || {};
-  const poolPointValue = Number(pilotStats.poolPointValueUsd || 0.02622);
-  currentPointSettings.liveVal = poolPointValue;
+
+  currentPointSettings.guaranteedVal = Number(pilotStats.incentivesPointValueUsd || 0.01703);
+  currentPointSettings.averageVal = Number(pilotStats.poolPointValueUsd || 0.02621);
+  currentPointSettings.jackpotVal = Number(pilotStats.leaderPointValueUsd || 0.03291);
+
   if (serverSettings.pointValueMode) {
     currentPointSettings.mode = serverSettings.pointValueMode;
   }
@@ -1055,68 +1060,70 @@ function renderDashboard(state, feeData) {
     currentPointSettings.customVal = serverSettings.customPointValueUsd;
   }
 
-  const effectivePointVal = currentPointSettings.mode === 'manual'
-    ? (Number(currentPointSettings.customVal) || poolPointValue)
-    : poolPointValue;
+  let effectivePointVal = currentPointSettings.guaranteedVal;
+  if (currentPointSettings.mode === 'average') {
+    effectivePointVal = currentPointSettings.averageVal;
+  } else if (currentPointSettings.mode === 'jackpot') {
+    effectivePointVal = currentPointSettings.jackpotVal;
+  } else if (currentPointSettings.mode === 'manual') {
+    effectivePointVal = Number(currentPointSettings.customVal) || currentPointSettings.guaranteedVal;
+  }
 
-  const autoRadio = $('#dash-point-mode-auto');
+  const guaranteedRadio = $('#dash-point-mode-guaranteed');
+  const averageRadio = $('#dash-point-mode-average');
+  const jackpotRadio = $('#dash-point-mode-jackpot');
   const manualRadio = $('#dash-point-mode-manual');
   const valInput = $('#dash-point-value-input');
   const poolStatusText = $('#dash-pool-status-text');
 
-  if (autoRadio && manualRadio && valInput) {
+  if (guaranteedRadio && averageRadio && jackpotRadio && manualRadio && valInput) {
     if (document.activeElement !== valInput) {
-      if (currentPointSettings.mode === 'auto') {
-        autoRadio.checked = true;
-        manualRadio.checked = false;
-        valInput.value = poolPointValue.toFixed(5);
-        valInput.readOnly = true;
-        valInput.style.opacity = '0.7';
-      } else {
-        autoRadio.checked = false;
-        manualRadio.checked = true;
-        valInput.value = Number(currentPointSettings.customVal).toFixed(5);
-        valInput.readOnly = false;
-        valInput.style.opacity = '1';
-      }
+      guaranteedRadio.checked = currentPointSettings.mode === 'guaranteed';
+      averageRadio.checked = currentPointSettings.mode === 'average';
+      jackpotRadio.checked = currentPointSettings.mode === 'jackpot';
+      manualRadio.checked = currentPointSettings.mode === 'manual';
+
+      valInput.value = effectivePointVal.toFixed(5);
+      valInput.readOnly = currentPointSettings.mode !== 'manual';
+      valInput.style.opacity = currentPointSettings.mode === 'manual' ? '1' : '0.75';
     }
   }
 
   if (poolStatusText) {
     const totalPoolUsd = Number(pilotStats.rewardVaultUsd || pilotStats.feesUsd) || 1141245.2;
-    const totalPoolPts = Number(pilotStats.totalPoints) || 43521515;
-    poolStatusText.innerHTML = `Reward-Vault: <strong>${totalPoolUsd.toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 1})} $</strong> · <strong>${(totalPoolPts / 1e6).toFixed(1)}M</strong> Punkte · Kurs: <strong class="dash-accent-text">~${poolPointValue.toFixed(5)} $/Pkt</strong>`;
+    const incPool = Number(pilotStats.incentivesPoolUsd || (totalPoolUsd * 0.65));
+    const jackPool = Number(pilotStats.jackpotPoolUsd || (totalPoolUsd * 0.35));
+    const totalPoolPts = Number(pilotStats.totalPoints) || 43549000;
+    const leader = pilotStats.leaderCountry || 'US';
+    poolStatusText.innerHTML = `Pool: <strong>${totalPoolUsd.toLocaleString('de-DE', {maximumFractionDigits:0})} $</strong> · 65% Incentives: <strong>${incPool.toLocaleString('de-DE', {maximumFractionDigits:0})} $</strong> (garantiert) · 35% Jackpot: <strong>${jackPool.toLocaleString('de-DE', {maximumFractionDigits:0})} $</strong> (${leader} führt)`;
   }
 
-  if (!pointControlsInitialized && autoRadio && manualRadio && valInput) {
+  if (!pointControlsInitialized && guaranteedRadio && averageRadio && jackpotRadio && manualRadio && valInput) {
     pointControlsInitialized = true;
-    autoRadio.onchange = async () => {
-      if (autoRadio.checked) {
-        currentPointSettings.mode = 'auto';
-        valInput.value = currentPointSettings.liveVal.toFixed(5);
-        valInput.readOnly = true;
-        valInput.style.opacity = '0.7';
-        await post('/settings', { pointValueMode: 'auto' }).catch(() => {});
-        if (lastFeeData && lastState) renderDashboard(lastState, lastFeeData);
-      }
+    const setMode = async (mode, val) => {
+      currentPointSettings.mode = mode;
+      valInput.value = val.toFixed(5);
+      valInput.readOnly = mode !== 'manual';
+      valInput.style.opacity = mode === 'manual' ? '1' : '0.75';
+      if (mode === 'manual') valInput.focus();
+      await post('/settings', { pointValueMode: mode, customPointValueUsd: val }).catch(() => {});
+      if (lastFeeData && lastState) renderDashboard(lastState, lastFeeData);
     };
-    manualRadio.onchange = async () => {
-      if (manualRadio.checked) {
-        currentPointSettings.mode = 'manual';
-        valInput.readOnly = false;
-        valInput.style.opacity = '1';
-        valInput.focus();
-        await post('/settings', { pointValueMode: 'manual', customPointValueUsd: Number(valInput.value) || 0.02622 }).catch(() => {});
-        if (lastFeeData && lastState) renderDashboard(lastState, lastFeeData);
-      }
-    };
+
+    guaranteedRadio.onchange = () => { if (guaranteedRadio.checked) void setMode('guaranteed', currentPointSettings.guaranteedVal); };
+    averageRadio.onchange = () => { if (averageRadio.checked) void setMode('average', currentPointSettings.averageVal); };
+    jackpotRadio.onchange = () => { if (jackpotRadio.checked) void setMode('jackpot', currentPointSettings.jackpotVal); };
+    manualRadio.onchange = () => { if (manualRadio.checked) void setMode('manual', Number(valInput.value) || currentPointSettings.guaranteedVal); };
+
     let saveTimer = null;
     valInput.oninput = () => {
       const val = Number(valInput.value) || 0;
       currentPointSettings.customVal = val;
       currentPointSettings.mode = 'manual';
       manualRadio.checked = true;
-      autoRadio.checked = false;
+      guaranteedRadio.checked = false;
+      averageRadio.checked = false;
+      jackpotRadio.checked = false;
       valInput.readOnly = false;
       valInput.style.opacity = '1';
       clearTimeout(saveTimer);

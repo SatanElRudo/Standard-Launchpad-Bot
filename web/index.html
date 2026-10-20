@@ -34,22 +34,30 @@
             <span class="dash-config-icon">🎯</span>
             <div>
               <strong>Punkte-Bewertung für PnL</strong>
-              <div class="subtle" id="dash-pool-status-text">Reward-Vault: 1.141.245,20 $ · 43,5 Mio. Punkte · Kurs: ~0,02622 $/Pkt</div>
+              <div class="subtle" id="dash-pool-status-text">Pool: 1.141.245 $ · 65% Incentives (garantiert) + 35% Jackpot (Sieger-Team US)</div>
             </div>
           </div>
           <div class="dash-points-config-actions">
             <div class="dash-radio-toggle">
-              <label class="dash-radio-item">
-                <input type="radio" name="dash-point-mode" value="auto" checked id="dash-point-mode-auto">
-                <span>Auto (Reward-Vault)</span>
+              <label class="dash-radio-item" title="65% Incentives-Pool: Garantiert für jeden Punkt, unabhängig welches Team gewinnt">
+                <input type="radio" name="dash-point-mode" value="guaranteed" checked id="dash-point-mode-guaranteed">
+                <span>🛡️ Garantiert (65%)</span>
               </label>
-              <label class="dash-radio-item">
+              <label class="dash-radio-item" title="100% Gesamter Pool geteilt durch alle Punkte">
+                <input type="radio" name="dash-point-mode" value="average" id="dash-point-mode-average">
+                <span>⚖️ 100% Ø Pool</span>
+              </label>
+              <label class="dash-radio-item" title="65% Incentives + 35% Jackpot-Anteil des führenden Teams (US / SPCX)">
+                <input type="radio" name="dash-point-mode" value="jackpot" id="dash-point-mode-jackpot">
+                <span>🏆 Sieger-Team US</span>
+              </label>
+              <label class="dash-radio-item" title="Eigenen individuellen Kurs manuell festlegen">
                 <input type="radio" name="dash-point-mode" value="manual" id="dash-point-mode-manual">
-                <span>Manuell</span>
+                <span>✍️ Manuell</span>
               </label>
             </div>
             <div class="dash-point-input-wrap">
-              <input type="number" id="dash-point-value-input" step="0.0001" min="0" value="0.02622" aria-label="Punktewert in Dollar">
+              <input type="number" id="dash-point-value-input" step="0.0001" min="0" value="0.01703" aria-label="Punktewert in Dollar">
               <span class="dash-unit-label">$/Punkt</span>
             </div>
           </div>
