@@ -222,3 +222,73 @@ export async function getBalances(addresses) {
   }));
   return Object.fromEntries(entries);
 }
+
+export async function getClaimableFees(curves = []) {
+  if (!curves.length) return [];
+  const configAddress = await client.readContract({
+    address: deployment.factory,
+    abi: vhooksAbi,
+    functionName: 'config',
+  });
+  const [c] = await client.readContract({
+    address: configAddress,
+    abi: vhooksConfigAbi,
+    functionName: 'get',
+  });
+  const escrow = c.feeEscrow;
+  const escrowAbi = parseAbi([
+    'function balanceOf(address curve) view returns (uint256)',
+  ]);
+  const curveAbi = parseAbi([
+    'function feeRecipient() view returns (address)'
+  ]);
+  return Promise.all(curves.map(async curve => {
+    try {
+      const [recipient, bal] = await Promise.all([
+        client.readContract({ address: curve, abi: curveAbi, functionName: 'feeRecipient' }),
+        client.readContract({ address: escrow, abi: escrowAbi, functionName: 'balanceOf', args: [curve] }),
+      ]);
+      return {
+        curve,
+        escrow,
+        feeRecipient: recipient,
+        balanceWei: bal.toString(),
+        balanceEth: formatEther(bal),
+      };
+    } catch {
+      return { curve, escrow, feeRecipient: '', balanceWei: '0', balanceEth: '0' };
+    }
+  }));
+}
+
+export async function executeClaimFees({ curve, privateKey }) {
+  assert(curve && /^0x[0-9a-fA-F]{40}$/.test(curve), 'Ungültige Curve-Adresse.');
+  const account = privateKeyToAccount(privateKey);
+  const configAddress = await client.readContract({
+    address: deployment.factory,
+    abi: vhooksAbi,
+    functionName: 'config',
+  });
+  const [c] = await client.readContract({
+    address: configAddress,
+    abi: vhooksConfigAbi,
+    functionName: 'get',
+  });
+  const escrow = c.feeEscrow;
+  const escrowAbi = parseAbi([
+    'function claim(address curve) returns (uint256 amount)'
+  ]);
+  const walletClient = createWalletClient({
+    account,
+    chain: robinhoodChain,
+    transport: http(deployment.rpc, { timeout: 30_000, retryCount: 2 }),
+  });
+  const hash = await walletClient.writeContract({
+    address: escrow,
+    abi: escrowAbi,
+    functionName: 'claim',
+    args: [curve],
+  });
+  const receipt = await client.waitForTransactionReceipt({ hash });
+  return { hash, status: receipt.status };
+}

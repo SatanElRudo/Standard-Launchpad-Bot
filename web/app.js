@@ -16,6 +16,7 @@ let exportingWalletId = null;
 let stockBalances = {};
 let pendingSnipe = null;
 let pendingLaunchMonitor = null;
+let claimableFeesMap = {};
 const alerted = new Set();
 let booted = false;
 let fastPoller = null;
@@ -1006,10 +1007,24 @@ async function refresh() {
     const pending = pendingHash ? `<div class="pending-launch"><a class="text-link" href="${state.deployment.explorer}/tx/${esc(pendingHash)}" target="_blank" rel="noopener noreferrer">Gesendeten Launch im Explorer prüfen ↗</a><p class="field-help">Warte auf Bestätigung. Bei Ersatztransaktionen den neuen Hash im Explorer prüfen.</p></div>` : '';
     render('#launches', pending + (state.launches.length ? state.launches.map(l => `<div class="item"><div><strong>${esc(l.name)} · $${esc(l.symbol)}</strong><small>${esc(l.token)}</small></div><div class="item-actions"><button class="text-button" data-action="monitor-launch" data-id="${l.hash}">Monitor anlegen ↗</button><a class="text-link" href="${state.deployment.explorer}/tx/${l.hash}" target="_blank" rel="noopener noreferrer">Transaktion ↗</a></div></div>`).join('') : '<div class="empty">Bestätigte Launches erscheinen hier automatisch.</div>'));
 
+    try {
+      const fees = await api('/fees');
+      claimableFeesMap = Object.fromEntries(fees.map(f => [f.curve?.toLowerCase(), f]));
+    } catch {
+      claimableFeesMap = {};
+    }
+
     render('#monitors', state.monitors.length ? state.monitors.map(m => {
       const s = m.snapshot;
       const creatorHtml = m.creatorWallet
         ? `<div class="monitor-creator-info"><small>Creator:</small> <strong>${esc(m.creatorLabel || 'Deployer')}</strong> <span class="address">(${esc(short(m.creatorWallet))})</span></div>`
+        : '';
+      const feeInfo = m.curve ? claimableFeesMap[m.curve.toLowerCase()] : null;
+      const feeHtml = (feeInfo && Number(feeInfo.balanceEth) > 0)
+        ? `<div class="monitor-creator-info" style="margin-top:0.4rem; background:rgba(0,255,100,0.08); padding:0.4rem 0.6rem; border-radius:6px; display:flex; justify-content:space-between; align-items:center;">
+             <span>💰 <strong>${esc(feeInfo.balanceEth)} ${esc(state.deployment.stocks[m.country || 'us']?.symbol || 'SPCX')}</strong> Creator-Fees gesammelt</span>
+             ${feeInfo.isMine ? `<button type="button" class="button mini primary" data-action="claim-fees" data-curve="${esc(m.curve)}">Gebühren claimen ➔</button>` : ''}
+           </div>`
         : '';
       const purchasesHtml = m.purchases && m.purchases.length > 0
         ? `<div class="monitor-purchases-info"><strong>Erstkäufe (${m.purchases.length} Wallets):</strong><ul class="snipe-purchases-list">${m.purchases.map(p => `<li>${p.status === 'success' ? '✅' : '❌'} <strong>${esc(p.label || short(p.address))}</strong>: ${esc(p.amount)} ${esc(p.currency || 'SPCX')} ${p.hash ? `<a class="text-link" href="${state.deployment.explorer}/tx/${esc(p.hash)}" target="_blank" rel="noopener noreferrer">${esc(short(p.hash))} ↗</a>` : ''} ${p.error ? `<span class="error">(${esc(p.error)})</span>` : ''}</li>`).join('')}</ul></div>`
@@ -1020,7 +1035,7 @@ async function refresh() {
       const sellResultsHtml = m.sellResults && m.sellResults.length > 0
         ? `<div class="monitor-purchases-info"><strong>Auto-Exit Verkäufe:</strong><ul class="snipe-purchases-list">${m.sellResults.map(s => `<li>${s.status === 'success' ? '✅' : s.status === 'kept_best_entry' ? '💎 (Moonbag behalten)' : '❌'} <strong>${esc(s.label || short(s.walletId || s.address || ''))}</strong>: ${s.tokensSold ? `${esc(s.tokensSold)} Tokens` : ''} ${s.hash ? `<a class="text-link" href="${state.deployment.explorer}/tx/${esc(s.hash)}" target="_blank" rel="noopener noreferrer">${esc(short(s.hash))} ↗</a>` : ''} ${s.error ? `<span class="error">(${esc(s.error)})</span>` : ''}</li>`).join('')}</ul></div>`
         : '';
-      return `<article class="panel monitor-card"><div class="monitor-title"><h2>${esc(m.name)}</h2>${sellBadge}<span class="pill ${!m.enabled || m.error ? 'offline' : ''}">${m.error ? 'Datenfehler' : m.enabled ? 'Aktiv' : 'Pausiert'}</span></div><p class="address">${esc(m.token)}</p><div class="metrics"><div><small>MARKET CAP</small><strong>${money(s?.marketCapUsd)}</strong></div><div><small>VOLUMEN · 24 H</small><strong>${money(s?.volume24hUsd)}</strong></div><div><small>LIQUIDITÄT</small><strong>${money(s?.liquidityUsd)}</strong></div><div><small>PREIS</small><strong>${money(s?.priceUsd)}</strong></div></div><div class="rule-summary">${m.rules.map(r => `${metricLabels[r.metric]} ${r.operator === 'gte' ? '≥' : '≤'} ${esc(r.threshold)}`).join(m.mode === 'all' ? '<br>UND ' : '<br>ODER ')}<br><span class="subtle">${m.holdSeconds} s Haltezeit · ${m.once ? 'Einmalig' : `${m.cooldownSeconds} s Cooldown`}</span></div>${creatorHtml}${purchasesHtml}${sellResultsHtml}${m.error ? `<p class="error">${esc(m.error)}</p>` : ''}<p class="subtle">Datenstand: ${date(s?.asOfTime ? s.asOfTime * 1000 : null)}</p><div class="item-actions"><button class="text-button" data-action="toggle" data-id="${m.id}">${m.enabled ? 'Pausieren' : 'Fortsetzen'}</button><button class="text-button" data-action="edit-monitor" data-id="${m.id}">Bearbeiten</button><button class="text-button" data-action="rearm" data-id="${m.id}">Neu scharfstellen</button><button class="text-button" data-action="delete-monitors" data-id="${m.id}">Entfernen</button></div></article>`;
+      return `<article class="panel monitor-card"><div class="monitor-title"><h2>${esc(m.name)}</h2>${sellBadge}<span class="pill ${!m.enabled || m.error ? 'offline' : ''}">${m.error ? 'Datenfehler' : m.enabled ? 'Aktiv' : 'Pausiert'}</span></div><p class="address">${esc(m.token)}</p><div class="metrics"><div><small>MARKET CAP</small><strong>${money(s?.marketCapUsd)}</strong></div><div><small>VOLUMEN · 24 H</small><strong>${money(s?.volume24hUsd)}</strong></div><div><small>LIQUIDITÄT</small><strong>${money(s?.liquidityUsd)}</strong></div><div><small>PREIS</small><strong>${money(s?.priceUsd)}</strong></div></div><div class="rule-summary">${m.rules.map(r => `${metricLabels[r.metric]} ${r.operator === 'gte' ? '≥' : '≤'} ${esc(r.threshold)}`).join(m.mode === 'all' ? '<br>UND ' : '<br>ODER ')}<br><span class="subtle">${m.holdSeconds} s Haltezeit · ${m.once ? 'Einmalig' : `${m.cooldownSeconds} s Cooldown`}</span></div>${creatorHtml}${feeHtml}${purchasesHtml}${sellResultsHtml}${m.error ? `<p class="error">${esc(m.error)}</p>` : ''}<p class="subtle">Datenstand: ${date(s?.asOfTime ? s.asOfTime * 1000 : null)}</p><div class="item-actions"><button class="text-button" data-action="toggle" data-id="${m.id}">${m.enabled ? 'Pausieren' : 'Fortsetzen'}</button><button class="text-button" data-action="edit-monitor" data-id="${m.id}">Bearbeiten</button><button class="text-button" data-action="rearm" data-id="${m.id}">Neu scharfstellen</button><button class="text-button" data-action="delete-monitors" data-id="${m.id}">Entfernen</button></div></article>`;
     }).join('') : '<div class="panel empty">Noch keine Monitore aktiv. Füge eine Token-Adresse und deine erste Trigger-Regel hinzu.</div>');
 
     render('#alerts', state.alerts.length ? state.alerts.map(a => `<article class="item ${a.read ? '' : 'alert-unread'}"><div><strong>◇ ${esc(a.name)}</strong><small>${esc(a.message)}</small><div class="alert-details">${esc(date(a.at))} · Market Cap ${money(a.metrics.marketCapUsd)} · Volumen 24 h ${money(a.metrics.volume24hUsd)}<br>${esc(a.token)}</div></div><span class="pill">${a.read ? 'Gelesen' : 'Neu'}</span></article>`).join('') : '<div class="empty">Alles ruhig. Sobald eine Regel auslöst, findest du den Alert mit Zeitstempel und Kennzahlen hier.</div>');
@@ -1083,6 +1098,10 @@ document.addEventListener('click', e => {
       $('#monitor-form button[type="submit"]').textContent = 'Änderungen speichern →';
       show('Monitor wird bearbeitet. Speichern setzt Kursbasis und bisherigen Auslösezustand zurück.');
       $('#monitor-form').scrollIntoView({ behavior: 'smooth' });
+    } else if (action === 'claim-fees') {
+      const curve = button.dataset.curve;
+      const res = await post('/fees/claim', { curve });
+      show(`Erfolgreich ${res.claimedAmount || ''} Gebühren abgeholt! TX: ${res.hash}`);
     }
     await refresh();
   });

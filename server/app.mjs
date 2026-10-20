@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createStore } from './store.mjs';
 import { marketToken } from './markets.mjs';
-import { launchTerms, prepareLaunch, inspectLaunch, executeDirectLaunch, getBalances } from './chain.mjs';
+import { launchTerms, prepareLaunch, inspectLaunch, executeDirectLaunch, getBalances, getClaimableFees, executeClaimFees } from './chain.mjs';
 import { address, draft, monitor, text, assert } from './validation.mjs';
 import { deployment } from '../shared/deployment.mjs';
 import { evaluateRules } from '../shared/rules.mjs';
@@ -263,6 +263,41 @@ export function createApp({
         const country = new URL(req.url, origin).searchParams.get('country') || 'us';
         const wallets = vault.getWallets();
         return send(200, await stockBalanceFn(wallets.map(w => w.address), country));
+      }
+      if (req.method === 'GET' && path === '/api/fees') {
+        const curves = [...new Set([
+          ...(state.launches || []).map(l => l.curve),
+          ...(state.monitors || []).map(m => m.curve),
+        ].filter(c => c && /^0x[0-9a-fA-F]{40}$/.test(c)))];
+        const feeData = await getClaimableFees(curves);
+        const vaultAddrs = new Set(vault.getWallets().map(w => w.address.toLowerCase()));
+        const enriched = feeData.map(f => ({
+          ...f,
+          isMine: vaultAddrs.has(f.feeRecipient?.toLowerCase()),
+        }));
+        return send(200, enriched);
+      }
+      if (req.method === 'POST' && path === '/api/fees/claim') {
+        assert(vault.isUnlocked(), 'Tresor ist gesperrt.');
+        const input = await body(req);
+        const curve = input.curve;
+        assert(curve && /^0x[0-9a-fA-F]{40}$/.test(curve), 'Ungültige Curve-Adresse.');
+        const [feeInfo] = await getClaimableFees([curve]);
+        assert(feeInfo && feeInfo.feeRecipient, 'Curve oder Gebührenempfänger nicht gefunden.');
+        const wallet = vault.findWallet(feeInfo.feeRecipient);
+        assert(wallet, `Keine passende Empfänger-Wallet (${feeInfo.feeRecipient}) im Tresor gefunden.`);
+        const privateKey = vault.getPrivateKey(wallet.id);
+        const claimResult = await executeClaimFees({ curve, privateKey });
+        state.alerts.unshift({
+          id: randomUUID(),
+          name: `Gebühren geclaimt: ${wallet.label}`,
+          message: `${feeInfo.balanceEth} Gebühren für Curve ${curve} erfolgreich abgeholt (TX: ${claimResult.hash}).`,
+          at: Date.now(),
+          token: curve,
+          metrics: {},
+        });
+        store.save();
+        return send(200, { ...claimResult, claimedAmount: feeInfo.balanceEth });
       }
       if (req.method === 'POST' && path === '/api/snipe') {
         assert(vault.isUnlocked(), 'Tresor ist gesperrt.');

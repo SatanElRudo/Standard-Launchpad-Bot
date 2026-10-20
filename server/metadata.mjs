@@ -2,6 +2,72 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 import { File } from 'node:buffer';
 
+export async function uploadImageToStandardReserve(buffer, mimeType = 'image/png') {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15_000);
+      try {
+        const res = await fetch('https://markets.standardreserve.xyz/v1/images', {
+          method: 'POST',
+          body: buffer,
+          headers: {
+            'Origin': 'https://www.standardreserve.xyz',
+            'Referer': 'https://www.standardreserve.xyz/',
+            'Content-Type': mimeType,
+          },
+          signal: controller.signal,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (typeof data.url === 'string' && data.url.startsWith('https://')) {
+            return data.url;
+          }
+        }
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    } catch {}
+    await new Promise(r => setTimeout(r, 500 * attempt));
+  }
+  throw new Error('Bild-Upload zu Standard Reserve fehlgeschlagen.');
+}
+
+export async function uploadMetadataToStandardReserve({ image, description = '', website = '' } = {}) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15_000);
+      try {
+        const res = await fetch('https://markets.standardreserve.xyz/v1/metadata', {
+          method: 'POST',
+          headers: {
+            'Origin': 'https://www.standardreserve.xyz',
+            'Referer': 'https://www.standardreserve.xyz/',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            image,
+            description: description.trim(),
+            website: website.trim(),
+          }),
+          signal: controller.signal,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (typeof data.url === 'string' && data.url.startsWith('https://')) {
+            return data.url;
+          }
+        }
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    } catch {}
+    await new Promise(r => setTimeout(r, 500 * attempt));
+  }
+  throw new Error('Metadaten-Upload zu Standard Reserve fehlgeschlagen.');
+}
+
 export async function uploadImageToCatbox(buffer, filename = 'image.png', mimeType = 'image/png') {
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
@@ -75,14 +141,22 @@ export async function hostImageAndMetadata({
   let imageUrl = existingImageUrl;
 
   if (imageBuffer) {
-    imageUrl = await uploadImageToCatbox(imageBuffer, imageFilename, imageMime);
+    try {
+      imageUrl = await uploadImageToStandardReserve(imageBuffer, imageMime);
+    } catch {
+      imageUrl = await uploadImageToCatbox(imageBuffer, imageFilename, imageMime);
+    }
   } else if (sampleAsset) {
     const safeName = sampleAsset.replace(/[^a-zA-Z0-9._-]/g, '');
     const assetPath = resolve(assetDir, safeName);
     const buf = await readFile(assetPath);
     const ext = extname(safeName).toLowerCase();
     const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
-    imageUrl = await uploadImageToCatbox(buf, safeName, mime);
+    try {
+      imageUrl = await uploadImageToStandardReserve(buf, mime);
+    } catch {
+      imageUrl = await uploadImageToCatbox(buf, safeName, mime);
+    }
   }
 
   if (!imageUrl) {
@@ -97,7 +171,16 @@ export async function hostImageAndMetadata({
     website: website.trim(),
   };
 
-  const metadataURI = await uploadMetadataJson(metadata);
+  let metadataURI;
+  try {
+    metadataURI = await uploadMetadataToStandardReserve({
+      image: imageUrl,
+      description: description.trim(),
+      website: website.trim(),
+    });
+  } catch {
+    metadataURI = await uploadMetadataJson(metadata);
+  }
 
   return {
     image: imageUrl,
