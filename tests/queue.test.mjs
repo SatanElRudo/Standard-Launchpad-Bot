@@ -18,15 +18,15 @@ test('template imports, paths stay within assets and files are size/type checked
   await mkdir(assets);
   try {
     const rows = importQueue(await readFile('examples/launch-queue.csv', 'utf8'), assets);
-    assert.equal(rows.length, 3); assert.equal(rows[0].metadataURI, '');
-    assert.equal(rows[1].imagePath, join(assets, 'dein-token.png'));
+    assert.equal(rows.length, 20); assert.equal(rows[0].metadataURI, '');
+    assert.equal(rows[0].imagePath, join(assets, 'cat1.jpg'));
     assert.throws(() => importQueue('name,symbol,country,image_path\nBad,BAD,us,../secret.png', assets), /assets/);
     assert.throws(() => importQueue('name,symbol,country,image_path\nBad,BAD,us,assets/a.svg', assets), /PNG/);
-    await writeFile(join(assets, 'dein-token.png'), Buffer.from('not an image'));
-    await assert.rejects(readQueueImage(rows[1], assets), /Bildformat/);
+    await writeFile(join(assets, 'cat1.jpg'), Buffer.from('not an image'));
+    await assert.rejects(readQueueImage(rows[0], assets), /Bildformat/);
     const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
-    await writeFile(join(assets, 'dein-token.png'), png);
-    const image = await readQueueImage(rows[1], assets); assert.equal(image.type, 'image/png'); assert.deepEqual(image.data, png);
+    await writeFile(join(assets, 'cat1.jpg'), png);
+    const image = await readQueueImage(rows[0], assets); assert.equal(image.type, 'image/png'); assert.deepEqual(image.data, png);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

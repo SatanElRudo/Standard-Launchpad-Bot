@@ -111,10 +111,10 @@ try {
   await page.locator('[data-page="queue"]').click();
   await page.locator('#queue-file').setInputFiles('examples/launch-queue.csv');
   await page.locator('#queue-form button[type="submit"]').click();
-  await expect(page.locator('#queue-feedback')).toContainText('3 Entwürfe importiert');
-  await expect(page.locator('#queue')).toContainText('Orbit Example');
+  await expect(page.locator('#queue-feedback')).toContainText('20 Entwürfe importiert');
+  await expect(page.locator('#queue')).toContainText('Space Kitty');
   await page.locator('[data-action="load-queue"]').first().click();
-  await expect(page.locator('#token-name')).toHaveValue('Orbit Example');
+  await expect(page.locator('#token-name')).toHaveValue('Space Kitty');
   await expect(page.locator('[name="metadataURI"]')).toHaveValue('');
   await expect(page.locator('#metadata-default-note')).toBeVisible();
   assert.equal(await page.evaluate(() => window.testWallet.calls.filter(c => c.method === 'eth_sendTransaction').length), 1);
