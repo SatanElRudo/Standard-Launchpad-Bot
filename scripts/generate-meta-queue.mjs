@@ -1,11 +1,29 @@
 import fs from 'node:fs';
 import { parseCsv } from '../shared/csv.mjs';
 
-// Read existing 20 rows
-const existingContent = fs.readFileSync('examples/launch-queue.csv', 'utf8').trim();
-const existingRows = existingContent.split(/\r?\n/).slice(1, 21); // keep original 20 rows
-
-console.log(`Preserving ${existingRows.length} existing rows.`);
+// Original 20 tokens with English descriptions
+const base20Tokens = [
+  { name: 'Space Kitty', symbol: 'SKITTY', country: 'eth', desc: 'Cosmic feline navigating Robinhood liquidity pools', img: 'assets/cat1.jpg' },
+  { name: 'Cyber Cat', symbol: 'CYCAT', country: 'eth', desc: 'High-frequency cyber cat scanning for breakout candles', img: 'assets/cat2.jpg' },
+  { name: 'Robin Crocodile', symbol: 'CROC', country: 'us', desc: 'Apex swamp predator snapping up sell-walls with ease', img: 'assets/crocodile1.jpg' },
+  { name: 'Golden Doge', symbol: 'GDOGE', country: 'cn', desc: 'Loyal diamond-pawed companion driving green candles', img: 'assets/dog1.jpg' },
+  { name: 'Happy Hippo', symbol: 'HIPPO', country: 'kr', desc: 'Heavyweight capital animal stamping out bears in Seoul', img: 'assets/hippo1.jpg' },
+  { name: 'Robinhood Parrot', symbol: 'PARROT', country: 'eth', desc: 'Feathered sharpshooter echoing alpha across Sherwood Forest', img: 'assets/parrot1.jpg' },
+  { name: 'Robin Token', symbol: 'RHT', country: 'us', desc: 'The sovereign reserve asset designed for decentralized freedom', img: 'assets/rhtoken1.jpg' },
+  { name: 'Bullish Bear', symbol: 'BBEAR', country: 'us', desc: 'The mythical friendly bear that exclusively buys market bottoms', img: 'assets/bear1.jpg' },
+  { name: 'Golden Bull', symbol: 'BULL', country: 'us', desc: 'Wall Street cyber bull charging straight through resistance levels', img: 'assets/bull1.jpg' },
+  { name: 'King Lion', symbol: 'LION', country: 'eth', desc: 'Royal king of DeFi vaults guarding communal treasuries', img: 'assets/lion1.jpg' },
+  { name: 'Moon Monkey', symbol: 'MONK', country: 'cn', desc: 'Galactic space primate collecting green bananas on the moon', img: 'assets/monkey1.jpg' },
+  { name: 'Wise Owl', symbol: 'OWL', country: 'us', desc: 'Wise algorithmic owl calculating optimal bonding curve trajectories', img: 'assets/owl1.jpg' },
+  { name: 'Bamboo Panda', symbol: 'PANDA', country: 'cn', desc: 'Zen martial artist shielding bamboo reserves from panic sellers', img: 'assets/panda1.jpg' },
+  { name: 'Frosty Penguin', symbol: 'PENGU', country: 'kr', desc: 'Chill frosty waddler sliding effortlessly through market slippage', img: 'assets/penguin1.jpg' },
+  { name: 'Swift Fox', symbol: 'FOX', country: 'eth', desc: 'Cunning red rogue outsmarting mempool frontrunners in style', img: 'assets/fox1.jpg' },
+  { name: 'Pepe Robin', symbol: 'FROG', country: 'us', desc: 'Green knight hopping over every dip onto new all-time highs', img: 'assets/frog1.jpg' },
+  { name: 'Turbo Rabbit', symbol: 'BUNNY', country: 'kr', desc: 'Supersonic cyber hare outrunning slow order books', img: 'assets/rabbit1.jpg' },
+  { name: 'Robin Shark', symbol: 'SHARK', country: 'eth', desc: 'Deep ocean explorer riding tidal waves of decentralized liquidity', img: 'assets/shark1.jpg' },
+  { name: 'Mystic Tiger', symbol: 'TIGER', country: 'cn', desc: 'Golden predator reigning over trading volume with ferocious roar', img: 'assets/tiger1.jpg' },
+  { name: 'Alpha Wolf', symbol: 'WOLF', country: 'us', desc: 'Pack leader howling at the neon moon of decentralized finance', img: 'assets/wolf1.jpg' },
+];
 
 // Meta image pools per category
 const categoryAssets = {
@@ -231,8 +249,13 @@ const metaTokens = [
 // Track index per category for clean round-robin assignment
 const catCounters = { beans: 0, vlad: 0, spcx: 0, baba: 0, skhy: 0, ai: 0 };
 
-// Build new rows
-const newRows = metaTokens.map((t, idx) => {
+// Format the 20 base tokens
+const first20Rows = base20Tokens.map(t => {
+  return `${t.name},${t.symbol},${t.country},"${t.desc}",${t.img},only in its own pool,10%,at exit,off,off,true,"marketCapUsd>=5000;gain>=50;drawdown>=30",true,all,0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7`;
+});
+
+// Build 180 meta rows
+const newRows = metaTokens.map((t) => {
   let asset = exactMatchImages[t.name];
   if (!asset) {
     const pool = categoryAssets[t.cat] || categoryAssets.beans;
@@ -240,20 +263,17 @@ const newRows = metaTokens.map((t, idx) => {
     catCounters[t.cat]++;
   }
 
-  // Vary monitor sell mode between n_minus_1 and all
-  const sellMode = idx % 3 === 0 ? 'all' : 'n_minus_1';
-  // Vary charter drop slightly (mostly 10%, some 5% or 0%)
-  const drop = idx % 7 === 0 ? 'off' : '10%';
-  return `${t.name},${t.symbol},${t.country},"${t.desc}",${asset},only in its own pool,${drop},at exit,off,off,true,"marketCapUsd>=150000;gain>=50;drawdown>=30",true,${sellMode}`;
+  return `${t.name},${t.symbol},${t.country},"${t.desc}",${asset},only in its own pool,10%,at exit,off,off,true,"marketCapUsd>=5000;gain>=50;drawdown>=30",true,all,0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7`;
 });
 
-const allRows = [...existingRows, ...newRows];
+const allRows = [...first20Rows, ...newRows];
 console.log(`Total rows to save: ${allRows.length}`);
 
-const header = "name,symbol,country,description,image_path,after_graduates,charter_drop,charter_payout,dev_buy,snipe_tax,monitor_enabled,monitor_rules,monitor_auto_sell,monitor_sell_mode";
+const header = "name,symbol,country,description,image_path,after_graduates,charter_drop,charter_payout,dev_buy,snipe_tax,monitor_enabled,monitor_rules,monitor_auto_sell,monitor_sell_mode,referrer";
 const finalCsv = [header, ...allRows].join('\n');
 
 fs.writeFileSync('examples/launch-queue.csv', finalCsv, 'utf8');
+fs.writeFileSync('examples/launch-queue.backup.csv', finalCsv, 'utf8');
 
 // Validate with parseCsv
 const parsed = parseCsv(finalCsv);

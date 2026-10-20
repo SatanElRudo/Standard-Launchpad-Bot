@@ -798,9 +798,11 @@ if ($('#auto-snipe-apply-all-btn')) {
 }
 
 $('#auto-launcher-form').onsubmit = e => { e.preventDefault(); busy(e.submitter, async () => {
-  const enabled = $('#auto-launcher-enabled').checked;
+  const enabled = state.autoLauncher?.enabled ?? false;
   const intervalMinutes = Number($('#auto-launcher-interval').value);
   const intervalVarianceSeconds = Number($('#auto-launcher-variance')?.value || 0);
+  const limitMode = $('#auto-launcher-limit-mode')?.value || 'all';
+  const targetCount = Number($('#auto-launcher-target-count')?.value) || 0;
   const walletMode = $('#auto-wallet-mode-rotate').checked ? 'rotate' : 'single';
   const defaultWalletId = $('#auto-launcher-default-wallet').value;
   
@@ -859,6 +861,8 @@ $('#auto-launcher-form').onsubmit = e => { e.preventDefault(); busy(e.submitter,
     enabled,
     intervalMinutes,
     intervalVarianceSeconds,
+    limitMode,
+    targetCount,
     walletMode,
     defaultWalletId,
     rotationWalletIds,
@@ -869,10 +873,59 @@ $('#auto-launcher-form').onsubmit = e => { e.preventDefault(); busy(e.submitter,
   });
   autoLauncherFormInitialized = false;
   await refresh();
-  show(enabled
-    ? `Automatischer Launch aktiviert (alle ${intervalMinutes} min ${intervalVarianceSeconds > 0 ? `± ${intervalVarianceSeconds} s` : ''}, ${walletMode === 'rotate' ? `Rotation über ${rotationWalletIds.length} Wallets` : 'feste Wallet'}).`
-    : 'Automatischer Launch pausiert (Einstellungen gespeichert).');
+  show('Einstellungen erfolgreich gespeichert.');
 }); };
+
+async function sendAutoLauncherControl(action) {
+  try {
+    const res = await post('/auto-launcher/control', { action });
+    await refresh();
+    return res;
+  } catch (err) {
+    show(`Steuerungsfehler: ${err.message}`, true);
+  }
+}
+
+if ($('#ctrl-btn-start')) {
+  $('#ctrl-btn-start').onclick = () => busy($('#ctrl-btn-start'), async () => {
+    const limitMode = $('#auto-launcher-limit-mode')?.value || 'all';
+    const targetCount = Number($('#auto-launcher-target-count')?.value) || 0;
+    await post('/auto-launcher/config', { limitMode, targetCount });
+    await sendAutoLauncherControl('start');
+    show(limitMode === 'count'
+      ? `Queue gestartet (Ziel: ${targetCount} Tokens ab jetzt).`
+      : 'Queue gestartet (alle Tokens abarbeiten).');
+  });
+}
+
+if ($('#ctrl-btn-pause')) {
+  $('#ctrl-btn-pause').onclick = () => busy($('#ctrl-btn-pause'), async () => {
+    await sendAutoLauncherControl('pause');
+    show('Queue pausiert.');
+  });
+}
+
+if ($('#ctrl-btn-soft-stop')) {
+  $('#ctrl-btn-soft-stop').onclick = () => busy($('#ctrl-btn-soft-stop'), async () => {
+    await sendAutoLauncherControl('soft_stop');
+    show('Soft Stop angefordert: Aktiver Launch wird abgeschlossen, danach stoppt die Queue.');
+  });
+}
+
+if ($('#ctrl-btn-hard-stop')) {
+  $('#ctrl-btn-hard-stop').onclick = () => busy($('#ctrl-btn-hard-stop'), async () => {
+    await sendAutoLauncherControl('hard_stop');
+    show('Hard Stop ausgeführt: Alle automatischen Aktivitäten sofort gestoppt.');
+  });
+}
+
+if ($('#auto-launcher-limit-mode')) {
+  $('#auto-launcher-limit-mode').onchange = () => {
+    if ($('#auto-launcher-target-count-box')) {
+      $('#auto-launcher-target-count-box').hidden = ($('#auto-launcher-limit-mode').value !== 'count');
+    }
+  };
+}
 
 $('#auto-launcher-trigger-now').onclick = () => busy($('#auto-launcher-trigger-now'), async () => {
   const res = await post('/auto-launcher/trigger', {});
@@ -1099,24 +1152,28 @@ function renderDashboard(state, feeData) {
   }
 }
 
+let lastRenderedNextTokenId = null;
+
 function renderNextTokenCard(item, al) {
   const card = $('#next-token-card');
   if (!card) return;
   if (!item) {
     card.hidden = true;
+    lastRenderedNextTokenId = null;
     return;
   }
   card.hidden = false;
 
   const content = $('#next-token-content');
-  if (content && content.contains(document.activeElement)) {
-    return; // Keep user's focus/typing intact
-  }
+  if (!content) return;
 
-  const isRunning = al?.status === 'running';
+  const isRunning = al?.status === 'running' || al?.status === 'soft_stopping';
   const badge = $('#next-token-status-badge');
   if (badge) {
-    if (isRunning) {
+    if (al?.status === 'soft_stopping') {
+      badge.textContent = 'Soft Stop: Beendet laufenden Launch …';
+      badge.className = 'pill pill-warning';
+    } else if (isRunning) {
       badge.textContent = 'Läuft gerade on-chain …';
       badge.className = 'pill pill-active';
     } else if (al?.enabled && al.countdownSeconds > 0) {
@@ -1127,6 +1184,28 @@ function renderNextTokenCard(item, al) {
       badge.className = 'pill';
     }
   }
+
+  // IMPORTANT: Prevent flickering!
+  // If the same queue token is already displayed, DO NOT wipe content.innerHTML.
+  // Re-creating the <img> tag causes the browser to re-request and re-decode the image every 3 seconds!
+  if (lastRenderedNextTokenId === item.id) {
+    content.querySelectorAll('input, select, button').forEach(el => {
+      if (el.id !== 'next-token-save-btn' && el.id !== 'next-token-trigger-btn') {
+        el.disabled = isRunning;
+      }
+    });
+    const saveBtn = $('#next-token-save-btn');
+    const trigBtn = $('#next-token-trigger-btn');
+    if (saveBtn) saveBtn.disabled = isRunning;
+    if (trigBtn) trigBtn.disabled = isRunning;
+    return;
+  }
+
+  if (content.contains(document.activeElement)) {
+    return; // Keep user's focus/typing intact
+  }
+
+  lastRenderedNextTokenId = item.id;
 
   const imgSrc = (item.id && item.imagePath) ? `/api/queue/${esc(item.id)}/image` : (item.image || '/favicon.svg');
   const country = item.country || 'us';
@@ -1285,6 +1364,7 @@ function renderNextTokenCard(item, al) {
       })
     });
     show(`Änderungen für nächsten Launch „${updated.name}“ erfolgreich gespeichert.`);
+    lastRenderedNextTokenId = null;
     await refresh();
   });
 
@@ -1364,8 +1444,18 @@ async function refresh() {
       } else if (al.status === 'paused_vault_locked') {
         badgeText = 'Pausiert: Tresor gesperrt 🔒';
         badgeClass = 'pill offline';
+      } else if (al.status === 'soft_stopping') {
+        badgeText = 'Soft Stop: Beendet laufenden Launch …';
+        badgeClass = 'pill pill-warning';
       } else if (al.status === 'running') {
-        badgeText = 'Läuft …'; badgeClass = 'pill';
+        badgeText = 'Läuft …';
+        badgeClass = 'pill pill-active';
+      } else if (al.status === 'completed') {
+        badgeText = `Ziel erreicht (${al.executedInRun}/${al.targetCount}) 🎯`;
+        badgeClass = 'pill pill-active';
+      } else if (al.status === 'stopped') {
+        badgeText = 'Gestoppt ⏹️';
+        badgeClass = 'pill offline';
       } else if (al.enabled) {
         if (al.status === 'error') {
           badgeText = `Fehler: ${short(al.lastError)}`;
@@ -1377,6 +1467,42 @@ async function refresh() {
       }
       $('#auto-launcher-badge').textContent = badgeText;
       $('#auto-launcher-badge').className = badgeClass;
+
+      // Update control button highlight classes
+      const isRunning = al.status === 'running';
+      const isSoftStopping = al.status === 'soft_stopping' || al.softStopRequested;
+      const isPaused = al.status === 'paused' || al.status === 'paused_insufficient_funds' || al.status === 'paused_vault_locked';
+
+      $('#ctrl-btn-start')?.classList.toggle('active-running', al.enabled && !isSoftStopping);
+      $('#ctrl-btn-pause')?.classList.toggle('active-paused', isPaused);
+      $('#ctrl-btn-soft-stop')?.classList.toggle('active-stopping', isSoftStopping);
+
+      // Progress banner
+      if ($('#auto-launcher-status-text')) {
+        let statusMsg = 'Status: Bereit zum Start';
+        if (isSoftStopping) {
+          statusMsg = 'Status: 🛑 Soft Stop angefordert (aktiver Launch läuft noch zu Ende)';
+        } else if (isRunning) {
+          statusMsg = 'Status: 🚀 Launch wird gerade on-chain ausgeführt …';
+        } else if (al.enabled) {
+          statusMsg = al.countdownSeconds > 0
+            ? `Status: ▶️ Aktiv (Nächster Launch in ${al.countdownSeconds} s)`
+            : 'Status: ▶️ Aktiv (Start in Kürze …)';
+        } else if (isPaused) {
+          statusMsg = 'Status: ⏸️ Pausiert';
+        } else if (al.status === 'completed') {
+          statusMsg = `Status: 🎯 Ziel-Anzahl erreicht (${al.executedInRun}/${al.targetCount} gelauncht)`;
+        } else if (al.status === 'stopped') {
+          statusMsg = 'Status: ⏹️ Gestoppt';
+        }
+        $('#auto-launcher-status-text').textContent = statusMsg;
+      }
+
+      if ($('#auto-launcher-count-pill')) {
+        const targetStr = al.limitMode === 'count' ? String(al.targetCount) : '∞';
+        $('#auto-launcher-count-pill').textContent = `${al.executedInRun || 0} / ${targetStr} ausgeführt`;
+        $('#auto-launcher-count-pill').className = `pill ${al.enabled ? 'pill-active' : 'subtle'}`;
+      }
 
       const isRotate = al.walletMode === 'rotate';
       let infoText = isRotate
@@ -1392,10 +1518,20 @@ async function refresh() {
       // 2. Initialize inputs ONCE so polling never blows away user's typing/toggling
       if (!autoLauncherFormInitialized) {
         autoLauncherFormInitialized = true;
-        $('#auto-launcher-enabled').checked = Boolean(al.enabled);
+        if ($('#auto-launcher-enabled')) $('#auto-launcher-enabled').checked = Boolean(al.enabled);
         $('#auto-launcher-interval').value = al.intervalMinutes || 5;
         if ($('#auto-launcher-variance')) {
           $('#auto-launcher-variance').value = al.intervalVarianceSeconds ?? 0;
+        }
+
+        if ($('#auto-launcher-limit-mode')) {
+          $('#auto-launcher-limit-mode').value = al.limitMode || 'all';
+        }
+        if ($('#auto-launcher-target-count')) {
+          $('#auto-launcher-target-count').value = al.targetCount || 5;
+        }
+        if ($('#auto-launcher-target-count-box')) {
+          $('#auto-launcher-target-count-box').hidden = (al.limitMode !== 'count');
         }
 
         if (al.pairAmounts) {

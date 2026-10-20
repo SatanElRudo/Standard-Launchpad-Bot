@@ -626,6 +626,10 @@ export function createApp({
         const input = await body(req);
         return send(200, autoLauncher.configure(input));
       }
+      if (req.method === 'POST' && path === '/api/auto-launcher/control') {
+        const input = await body(req);
+        return send(200, autoLauncher.control(input));
+      }
       if (req.method === 'POST' && path === '/api/auto-launcher/trigger') {
         return send(200, await autoLauncher.executeNext(true));
       }

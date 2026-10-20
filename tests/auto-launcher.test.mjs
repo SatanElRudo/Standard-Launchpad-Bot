@@ -506,6 +506,72 @@ test('auto launcher forwards default and token-specific referrer to launch and s
   assert.equal(snipeReferrer, '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7');
 });
 
+test('auto launcher controls: start, pause, soft_stop, hard_stop and count limit', async () => {
+  const store = createMockStore();
+  const vault = createVault({ store, autoLockMs: 60000 });
+  vault.init('masterpass123');
+  const deployer = vault.createWallet('Deployer');
+
+  store.state.queue.push(
+    { id: 'item-1', name: 'Token 1', symbol: 'TK1', country: 'us', wallet: deployer.address },
+    { id: 'item-2', name: 'Token 2', symbol: 'TK2', country: 'us', wallet: deployer.address },
+    { id: 'item-3', name: 'Token 3', symbol: 'TK3', country: 'us', wallet: deployer.address }
+  );
+
+  let launchedCount = 0;
+  const launcher = createAutoLauncher({
+    store,
+    vault,
+    executeLaunch: async () => {
+      launchedCount++;
+      return { hash: '0x' + String(launchedCount).repeat(64) };
+    },
+    inspectLaunch: async hash => ({
+      status: 'success',
+      hash,
+      token: '0x' + String(launchedCount).repeat(40),
+      name: `Token ${launchedCount}`,
+      symbol: `TK${launchedCount}`
+    })
+  });
+
+  // 1. Configure limit count = 2
+  launcher.configure({ limitMode: 'count', targetCount: 2 });
+  const startStatus = launcher.control({ action: 'start' });
+  assert.equal(startStatus.enabled, true);
+  assert.equal(startStatus.limitMode, 'count');
+  assert.equal(startStatus.targetCount, 2);
+  assert.equal(startStatus.executedInRun, 0);
+
+  // 2. Pause
+  const pauseStatus = launcher.control({ action: 'pause' });
+  assert.equal(pauseStatus.enabled, false);
+  assert.equal(pauseStatus.status, 'paused');
+
+  // 3. Resume start
+  launcher.control({ action: 'start' });
+
+  // 4. Execute 1st token
+  const res1 = await launcher.executeNext();
+  assert.equal(res1.success, true);
+  assert.equal(launcher.status().executedInRun, 1);
+  assert.equal(launcher.status().enabled, true);
+
+  // 5. Execute 2nd token (hits targetCount = 2)
+  const res2 = await launcher.executeNext();
+  assert.equal(res2.success, true);
+  assert.equal(res2.completed, true);
+  assert.equal(launcher.status().executedInRun, 2);
+  assert.equal(launcher.status().enabled, false);
+  assert.equal(launcher.status().status, 'completed');
+
+  // 6. Hard stop resets run
+  const hardStatus = launcher.control({ action: 'hard_stop' });
+  assert.equal(hardStatus.enabled, false);
+  assert.equal(hardStatus.status, 'stopped');
+  assert.equal(hardStatus.executedInRun, 0);
+});
+
 
 
 

@@ -231,9 +231,33 @@
         <div class="page-heading"><div><p class="eyebrow">ENTWÜRFE AUS EINER DATEI</p><h1>Vorbereiten. Automatisch oder einzeln.</h1><p>CSV importieren und Launches manuell oder intervallgesteuert automatisch ausführen.</p></div><a class="button secondary" href="/examples/launch-queue.csv" download>CSV-Vorlage herunterladen ↓</a></div>
         <section class="panel">
           <div class="panel-heading"><h2><span class="section-no">⚡</span> Automatischer Queue-Launch</h2><span id="auto-launcher-badge" class="pill">Pausiert</span></div>
+
+          <div class="auto-launcher-controls">
+            <button type="button" id="ctrl-btn-start" class="button primary ctrl-btn" title="Abarbeitung der Queue starten oder fortsetzen"><span class="ctrl-icon">▶</span> Start</button>
+            <button type="button" id="ctrl-btn-pause" class="button secondary ctrl-btn" title="Zwischen Launches pausieren"><span class="ctrl-icon">⏸</span> Pause</button>
+            <button type="button" id="ctrl-btn-soft-stop" class="button secondary ctrl-btn" title="Wartet bis zum Abschluss des laufenden Launches und stoppt dann"><span class="ctrl-icon">🛑</span> Soft Stop</button>
+            <button type="button" id="ctrl-btn-hard-stop" class="button secondary ctrl-btn danger-hover" title="Stoppt sofort alle automatischen Aktivitäten"><span class="ctrl-icon">⏹</span> Hard Stop</button>
+          </div>
+
+          <div id="auto-launcher-progress-banner" class="auto-progress-banner">
+            <span id="auto-launcher-status-text">Status: Bereit zum Start</span>
+            <span id="auto-launcher-count-pill" class="pill subtle">0 / ∞ ausgeführt</span>
+          </div>
+
           <form id="auto-launcher-form">
-            <div class="fields three">
-              <label class="checkbox field-align-top"><input type="checkbox" id="auto-launcher-enabled" name="enabled"> <strong>Automatischer Start aktiv</strong></label>
+            <div class="fields two">
+              <label>Umfang der Queue-Abarbeitung
+                <select id="auto-launcher-limit-mode" name="limitMode">
+                  <option value="all">Alle Tokens der Queue abarbeiten</option>
+                  <option value="count">Nur eine bestimmte Anzahl X abarbeiten</option>
+                </select>
+              </label>
+              <div id="auto-launcher-target-count-box" hidden>
+                <label>Anzahl Tokens ab Start (X)<input type="number" id="auto-launcher-target-count" name="targetCount" min="1" max="200" value="5"></label>
+              </div>
+            </div>
+
+            <div class="fields two">
               <label>Basis-Intervall (Minuten)<input type="number" id="auto-launcher-interval" name="intervalMinutes" min="1" max="1440" value="5" required></label>
               <label>Zufällige Varianz (± Sekunden)<input type="number" id="auto-launcher-variance" name="intervalVarianceSeconds" min="0" max="3600" value="0" step="5"></label>
             </div>
@@ -305,7 +329,7 @@
         <!-- Nächster Token Teaser Panel -->
         <section id="next-token-card" class="panel next-token-panel" hidden>
           <div class="panel-heading">
-            <div>
+            <div class="next-token-heading-box">
               <span class="pill pill-highlight">⚡ NÄCHSTER TOKEN IM ABLAUF</span>
               <h2>Vorschau & Live-Bearbeitung vor Launch</h2>
             </div>

@@ -227,6 +227,7 @@ export function createVault({ store, autoLockMs = DEFAULT_AUTO_LOCK_MS, isKeepAl
     getPrivateKey,
     exportWallet,
     deleteWallet,
+    resetAutoLock,
     close: () => lock(),
   };
 }

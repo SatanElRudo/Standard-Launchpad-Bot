@@ -15,6 +15,10 @@ export function createAutoLauncher({
     enabled: false,
     intervalMinutes: 5,
     intervalVarianceSeconds: 0,
+    limitMode: 'all', // 'all' | 'count'
+    targetCount: 0,
+    executedInRun: 0,
+    softStopRequested: false,
     walletMode: 'single', // 'single' | 'rotate'
     defaultWalletId: '',
     rotationWalletIds: [],
@@ -121,12 +125,16 @@ export function createAutoLauncher({
       enabled: Boolean(al.enabled),
       intervalMinutes: al.intervalMinutes ?? 5,
       intervalVarianceSeconds: al.intervalVarianceSeconds ?? 0,
+      limitMode: al.limitMode ?? 'all',
+      targetCount: al.targetCount ?? 0,
+      executedInRun: al.executedInRun ?? 0,
+      softStopRequested: Boolean(al.softStopRequested),
       walletMode: al.walletMode ?? 'single',
       defaultWalletId: al.defaultWalletId ?? '',
       rotationWalletIds: Array.isArray(al.rotationWalletIds) ? al.rotationWalletIds : [],
       rotationIndex: al.rotationIndex ?? 0,
       nextWallet: peekNextWallet(),
-      status: inProgress ? 'running' : al.status ?? 'idle',
+      status: inProgress ? (al.softStopRequested ? 'soft_stopping' : 'running') : al.status ?? 'idle',
       nextRunAt: al.nextRunAt ?? null,
       lastRunAt: al.lastRunAt ?? null,
       inProgress,
@@ -142,7 +150,90 @@ export function createAutoLauncher({
     };
   }
 
-  function configure({ enabled, intervalMinutes, intervalVarianceSeconds, walletMode, defaultWalletId, rotationWalletIds, snipeOrders, pairAmounts, defaultMonitor, defaultReferrer }) {
+  function control({ action } = {}) {
+    const al = state.autoLauncher;
+    if (action === 'start') {
+      al.enabled = true;
+      al.softStopRequested = false;
+      al.executedInRun = 0;
+      al.status = 'idle';
+      al.lastError = null;
+      al.nextRunAt = Date.now() + 2000;
+      state.alerts.unshift({
+        id: randomUUID(),
+        category: 'info',
+        name: 'Auto-Launcher gestartet ▶️',
+        message: al.limitMode === 'count'
+          ? `Automatische Queue gestartet: Ziel = ${al.targetCount} Token(s). Nächster Start in Kürze.`
+          : 'Automatische Queue gestartet: Abarbeitung aller Token aktiv. Nächster Start in Kürze.',
+        at: Date.now(),
+        token: '0x0000000000000000000000000000000000000000',
+        metrics: {},
+      });
+    } else if (action === 'pause') {
+      al.enabled = false;
+      al.softStopRequested = false;
+      al.status = 'paused';
+      al.nextRunAt = null;
+      state.alerts.unshift({
+        id: randomUUID(),
+        category: 'info',
+        name: 'Auto-Launcher pausiert ⏸️',
+        message: `Queue pausiert (${al.executedInRun} ausgeführt). Kann jederzeit fortgesetzt werden.`,
+        at: Date.now(),
+        token: '0x0000000000000000000000000000000000000000',
+        metrics: {},
+      });
+    } else if (action === 'soft_stop') {
+      if (inProgress) {
+        al.softStopRequested = true;
+        al.enabled = false;
+        al.status = 'soft_stopping';
+        state.alerts.unshift({
+          id: randomUUID(),
+          category: 'warning',
+          name: 'Queue: Soft Stop angefordert 🛑',
+          message: 'Laufender Token-Launch wird noch abgeschlossen, danach stoppt die automatische Abarbeitung.',
+          at: Date.now(),
+          token: '0x0000000000000000000000000000000000000000',
+          metrics: {},
+        });
+      } else {
+        al.enabled = false;
+        al.softStopRequested = false;
+        al.status = 'stopped';
+        al.nextRunAt = null;
+        state.alerts.unshift({
+          id: randomUUID(),
+          category: 'info',
+          name: 'Queue gestoppt 🛑',
+          message: 'Automatische Abarbeitung gestoppt.',
+          at: Date.now(),
+          token: '0x0000000000000000000000000000000000000000',
+          metrics: {},
+        });
+      }
+    } else if (action === 'hard_stop') {
+      al.enabled = false;
+      al.softStopRequested = false;
+      al.status = 'stopped';
+      al.nextRunAt = null;
+      al.executedInRun = 0;
+      state.alerts.unshift({
+        id: randomUUID(),
+        category: 'warning',
+        name: 'Queue: Hard Stop ausgeführt ⏹️',
+        message: 'Alle automatischen Queue- und Folgeaktivitäten wurden sofort abgebrochen und deaktiviert.',
+        at: Date.now(),
+        token: '0x0000000000000000000000000000000000000000',
+        metrics: {},
+      });
+    }
+    store.save();
+    return status();
+  }
+
+  function configure({ enabled, intervalMinutes, intervalVarianceSeconds, limitMode, targetCount, walletMode, defaultWalletId, rotationWalletIds, snipeOrders, pairAmounts, defaultMonitor, defaultReferrer }) {
     const al = state.autoLauncher;
     if (typeof defaultReferrer === 'string') {
       al.defaultReferrer = defaultReferrer.trim();
@@ -152,6 +243,12 @@ export function createAutoLauncher({
     }
     if (typeof intervalVarianceSeconds === 'number' && Number.isFinite(intervalVarianceSeconds) && intervalVarianceSeconds >= 0) {
       al.intervalVarianceSeconds = Math.min(3600, Math.max(0, Math.round(intervalVarianceSeconds)));
+    }
+    if (limitMode === 'all' || limitMode === 'count') {
+      al.limitMode = limitMode;
+    }
+    if (typeof targetCount === 'number' && Number.isFinite(targetCount) && targetCount >= 0) {
+      al.targetCount = Math.max(0, Math.round(targetCount));
     }
     if (walletMode === 'single' || walletMode === 'rotate') {
       al.walletMode = walletMode;
@@ -191,6 +288,7 @@ export function createAutoLauncher({
         al.status = 'idle';
         al.nextRunAt = null;
       }
+      vault?.resetAutoLock?.();
     }
     store.save();
     return status();
@@ -256,6 +354,23 @@ export function createAutoLauncher({
       });
       store.save();
       return { error: al.lastError, paused: true };
+    }
+
+    if (!manual && al.limitMode === 'count' && al.targetCount > 0 && (al.executedInRun || 0) >= al.targetCount) {
+      al.enabled = false;
+      al.status = 'completed';
+      al.nextRunAt = null;
+      state.alerts.unshift({
+        id: randomUUID(),
+        category: 'info',
+        name: `Queue Ziel erreicht (${al.executedInRun}/${al.targetCount}) 🎯`,
+        message: `Die gewünschte Anzahl von ${al.targetCount} Token-Launches wurde erreicht. Auto-Launcher beendet.`,
+        at: Date.now(),
+        token: '0x0000000000000000000000000000000000000000',
+        metrics: {},
+      });
+      store.save();
+      return { stopped: true, reason: 'Target count reached' };
     }
 
     const item = state.queue[0];
@@ -438,6 +553,43 @@ export function createAutoLauncher({
           }
         }
 
+        al.executedInRun = (al.executedInRun || 0) + 1;
+
+        if (al.softStopRequested) {
+          al.enabled = false;
+          al.softStopRequested = false;
+          al.status = 'stopped';
+          al.nextRunAt = null;
+          state.alerts.unshift({
+            id: randomUUID(),
+            category: 'info',
+            name: 'Queue: Soft Stop abgeschlossen 🛑',
+            message: `Launch von ${item.name} abgeschlossen. Automatische Queue wurde sauber gestoppt.`,
+            at: Date.now(),
+            token: result.token,
+            metrics: {},
+          });
+          store.save();
+          return { success: true, token: result.token, hash, stopped: true };
+        }
+
+        if (al.limitMode === 'count' && al.targetCount > 0 && al.executedInRun >= al.targetCount) {
+          al.enabled = false;
+          al.status = 'completed';
+          al.nextRunAt = null;
+          state.alerts.unshift({
+            id: randomUUID(),
+            category: 'info',
+            name: `Queue Ziel erreicht (${al.executedInRun}/${al.targetCount}) 🎯`,
+            message: `Die gewünschte Anzahl von ${al.targetCount} Token-Launches wurde abgeschlossen. Auto-Launcher beendet.`,
+            at: Date.now(),
+            token: result.token,
+            metrics: {},
+          });
+          store.save();
+          return { success: true, token: result.token, hash, completed: true };
+        }
+
         return { success: true, token: result.token, hash };
       } else if (result?.status === 'reverted') {
         throw new Error(`Transaktion ${hash} wurde on-chain zurückgewiesen (reverted).`);
@@ -478,11 +630,22 @@ export function createAutoLauncher({
     } finally {
       inProgress = false;
       al.inFlightTx = null;
-      if (al.enabled) {
-        al.status = al.lastError ? 'error' : 'idle';
-        al.nextRunAt = Date.now() + getNextDelayMs(al);
+      if (al.softStopRequested) {
+        al.enabled = false;
+        al.softStopRequested = false;
+        al.status = 'stopped';
+        al.nextRunAt = null;
+      } else if (al.enabled) {
+        if (al.limitMode === 'count' && al.targetCount > 0 && (al.executedInRun || 0) >= al.targetCount) {
+          al.enabled = false;
+          al.status = 'completed';
+          al.nextRunAt = null;
+        } else {
+          al.status = al.lastError ? 'error' : 'idle';
+          al.nextRunAt = Date.now() + getNextDelayMs(al);
+        }
       } else {
-        if (al.status !== 'paused_insufficient_funds' && al.status !== 'paused_vault_locked') {
+        if (al.status !== 'paused_insufficient_funds' && al.status !== 'paused_vault_locked' && al.status !== 'completed' && al.status !== 'stopped') {
           al.status = 'idle';
         }
         al.nextRunAt = null;
@@ -520,6 +683,7 @@ export function createAutoLauncher({
   return {
     status,
     configure,
+    control,
     executeNext,
     tick,
   };
