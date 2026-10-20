@@ -9,6 +9,7 @@ export function createAutoLauncher({
   inspectLaunch,
   snipeFn,
   createMonitorFn,
+  removeQueueItemFn,
 } = {}) {
   const state = store.state;
   state.autoLauncher ??= {
@@ -454,7 +455,14 @@ export function createAutoLauncher({
       }
 
       if (result?.status === 'success') {
-        state.queue.shift();
+        const launchedItem = state.queue.shift();
+        if (typeof removeQueueItemFn === 'function' && launchedItem) {
+          try {
+            await removeQueueItemFn({ name: launchedItem.name, symbol: launchedItem.symbol });
+          } catch (e) {
+            console.warn('[AutoLauncher] CSV update error:', e.message);
+          }
+        }
         if (!state.launches.some(l => l.hash === hash)) {
           state.launches.unshift(result);
         }

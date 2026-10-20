@@ -1,5 +1,5 @@
 import { resolve, relative, isAbsolute, extname } from 'node:path';
-import { realpath, open, readFile } from 'node:fs/promises';
+import { realpath, open, readFile, writeFile } from 'node:fs/promises';
 import { watch } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { parseCsv } from '../shared/csv.mjs';
@@ -155,6 +155,63 @@ export async function readQueueImage(item, root) {
   } finally { await file.close(); }
 }
 
+export function removeRowFromCsv(source, { name, symbol } = {}) {
+  if (typeof source !== 'string') return { newCsv: source, removed: null };
+  const input = source.replace(/^\uFEFF/, '');
+  const headerLine = input.split(/\r?\n/, 1)[0];
+  const delimiter = headerLine.includes(';') && !headerLine.includes(',') ? ';' : ',';
+  const rows = []; let row = [], value = '', quoted = false, closed = false;
+  const field = () => { row.push(value); value = ''; closed = false; };
+  const record = () => { field(); if (row.some(v => v.trim())) rows.push(row); row = []; };
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (quoted) {
+      if (ch === '"' && input[i + 1] === '"') { value += '"'; i++; }
+      else if (ch === '"') { quoted = false; closed = true; }
+      else value += ch;
+    } else if (ch === delimiter) field();
+    else if (ch === '\r' || ch === '\n') { if (ch === '\r' && input[i + 1] === '\n') i++; record(); }
+    else if (ch === '"' && value === '' && !closed) quoted = true;
+    else if (closed || ch === '"') throw new Error(`Ungültige CSV-Quotes bei Zeichen ${i + 1}.`);
+    else value += ch;
+  }
+  if (quoted) throw new Error('CSV enthält ein nicht geschlossenes Anführungszeichen.');
+  if (value || row.length || closed) record();
+
+  if (rows.length <= 1) return { newCsv: source, removed: null };
+  const headers = rows[0].map(v => v.trim());
+  const nameIdx = headers.indexOf('name');
+  const symbolIdx = headers.indexOf('symbol');
+
+  let removeIdx = -1;
+  for (let i = 1; i < rows.length; i++) {
+    const rName = nameIdx >= 0 ? rows[i][nameIdx] : '';
+    const rSym = symbolIdx >= 0 ? rows[i][symbolIdx] : '';
+    if ((name && rName === name) || (symbol && rSym === symbol)) {
+      removeIdx = i;
+      break;
+    }
+  }
+
+  if (removeIdx === -1 && rows.length > 1) {
+    removeIdx = 1;
+  }
+
+  const removed = rows.splice(removeIdx, 1)[0];
+
+  const formatCell = (val) => {
+    if (val === undefined || val === null) return '';
+    const str = String(val);
+    if (str.includes(delimiter) || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+      return '"' + str.replaceAll('"', '""') + '"';
+    }
+    return str;
+  };
+
+  const newCsv = rows.map(r => r.map(formatCell).join(delimiter)).join('\n') + '\n';
+  return { newCsv, removed };
+}
+
 export function createQueueWatcher({ projectRoot, assetDir, state, store, onSync } = {}) {
   state.queueSync ??= {
     path: 'examples/launch-queue.csv',
@@ -165,6 +222,7 @@ export function createQueueWatcher({ projectRoot, assetDir, state, store, onSync
 
   let activeWatcher = null;
   let debounceTimer = null;
+  let isWritingFile = false;
 
   function resolveCsvPath(userPath) {
     const raw = String(userPath || state.queueSync.path || 'examples/launch-queue.csv').trim();
@@ -193,6 +251,28 @@ export function createQueueWatcher({ projectRoot, assetDir, state, store, onSync
     }
   }
 
+  async function removeQueueItemFromFile({ name, symbol } = {}, filePath) {
+    const targetPath = filePath || state.queueSync?.path || 'examples/launch-queue.csv';
+    const fullPath = resolveCsvPath(targetPath);
+    try {
+      const content = await readFile(fullPath, 'utf8');
+      const { newCsv, removed } = removeRowFromCsv(content, { name, symbol });
+      if (removed) {
+        isWritingFile = true;
+        await writeFile(fullPath, newCsv, 'utf8');
+        state.queueSync.lastSyncAt = Date.now();
+        state.queueSync.count = state.queue?.length ?? 0;
+        store.save();
+        console.log(`[QueueWatcher] Zeile "${removed[0]}" aus ${targetPath} entfernt.`);
+        setTimeout(() => { isWritingFile = false; }, 800);
+        return { success: true, removed };
+      }
+    } catch (err) {
+      console.warn(`[QueueWatcher] Konnte Zeile nicht aus ${targetPath} löschen:`, err.message);
+    }
+    return { success: false };
+  }
+
   function startWatch(filePath) {
     if (activeWatcher) {
       try { activeWatcher.close(); } catch {}
@@ -202,8 +282,10 @@ export function createQueueWatcher({ projectRoot, assetDir, state, store, onSync
     const fullPath = resolveCsvPath(targetPath);
     try {
       activeWatcher = watch(fullPath, (eventType) => {
+        if (isWritingFile) return;
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(async () => {
+          if (isWritingFile) return;
           try {
             await syncFromFile(targetPath);
             console.log(`[QueueWatcher] CSV automatisch neu eingelesen: ${targetPath} (${state.queue.length} Einträge).`);
@@ -222,6 +304,7 @@ export function createQueueWatcher({ projectRoot, assetDir, state, store, onSync
 
   return {
     syncFromFile,
+    removeQueueItemFromFile,
     startWatch,
     status() {
       return {

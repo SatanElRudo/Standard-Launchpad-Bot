@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCsv } from '../shared/csv.mjs';
-import { importQueue, readQueueImage, parseMonitorConfig } from '../server/queue.mjs';
+import { importQueue, readQueueImage, parseMonitorConfig, removeRowFromCsv } from '../server/queue.mjs';
 import { mkdtemp, mkdir, writeFile, rm, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -104,5 +104,13 @@ test('draft and queue import correctly set new V3 launch settings and defaults',
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('removeRowFromCsv removes matching token from CSV string and preserves format', () => {
+  const csv = 'name,symbol,country\nAlpha,ALP,us\nBeta,BET,eth\nGamma,GAM,cn\n';
+  const { newCsv, removed } = removeRowFromCsv(csv, { name: 'Beta', symbol: 'BET' });
+  assert.equal(removed[0], 'Beta');
+  assert.equal(removed[1], 'BET');
+  assert.equal(newCsv, 'name,symbol,country\nAlpha,ALP,us\nGamma,GAM,cn\n');
 });
 

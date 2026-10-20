@@ -268,15 +268,6 @@ export function createApp({
     }
   }
 
-  const autoLauncher = createAutoLauncher({
-    store,
-    vault,
-    executeLaunch,
-    inspectLaunch: inspectLaunchFn,
-    snipeFn,
-    createMonitorFn: createLaunchMonitor,
-  });
-
   const projectRoot = resolve(assetDir, '..');
   const queueWatcher = createQueueWatcher({
     projectRoot,
@@ -301,6 +292,16 @@ export function createApp({
   } catch (e) {
     console.warn('Queue watcher could not start on init:', e.message);
   }
+
+  const autoLauncher = createAutoLauncher({
+    store,
+    vault,
+    executeLaunch,
+    inspectLaunch: inspectLaunchFn,
+    snipeFn,
+    createMonitorFn: createLaunchMonitor,
+    removeQueueItemFn: (item) => queueWatcher.removeQueueItemFromFile(item),
+  });
 
   async function body(req) {
     assert(req.headers['content-type']?.split(';')[0] === 'application/json', 'Content-Type application/json erforderlich.');
@@ -916,8 +917,12 @@ export function createApp({
       }
       if (req.method === 'DELETE' && /^\/api\/(wallets|drafts|monitors|queue)\/[^/]+$/.test(path)) {
         const [, , collection, id] = path.split('/');
-        const item = state[collection].findIndex(x => x.id === id); assert(item >= 0, 'Eintrag nicht gefunden.');
-        state[collection].splice(item, 1); store.save(); return send(200, { ok: true });
+        const itemIndex = state[collection].findIndex(x => x.id === id); assert(itemIndex >= 0, 'Eintrag nicht gefunden.');
+        const [deletedItem] = state[collection].splice(itemIndex, 1);
+        if (collection === 'queue' && deletedItem) {
+          await queueWatcher.removeQueueItemFromFile({ name: deletedItem.name, symbol: deletedItem.symbol }).catch(() => {});
+        }
+        store.save(); return send(200, { ok: true });
       }
       if (path.startsWith('/api/')) return send(404, { error: 'Endpoint nicht gefunden.' });
       if (req.method === 'GET' && path === '/examples/launch-queue.csv') {
