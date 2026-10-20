@@ -16,6 +16,56 @@ import { hostImageAndMetadata, listSampleAssets } from './metadata.mjs';
 
 const json = value => JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.toString() : v);
 
+const tokenPointsCache = new Map();
+async function getLiveTokenPoints(tokenAddr, vaultMap) {
+  if (!tokenAddr || !/^0x[0-9a-fA-F]{40}$/.test(tokenAddr)) return null;
+  const key = tokenAddr.toLowerCase();
+  const cached = tokenPointsCache.get(key);
+  if (cached && Date.now() - cached.at < 15_000) return cached.data;
+
+  try {
+    const [tokenRes, tradesRes] = await Promise.all([
+      fetch(`https://markets.standardreserve.xyz/v1/tokens/${tokenAddr}`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`https://markets.standardreserve.xyz/v1/tokens/${tokenAddr}/trades`).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]);
+
+    const deployerPoints = Number(tokenRes?.token?.deployerPoints || 0);
+    const pilotPoints = Number(tokenRes?.token?.pilotPoints || 0);
+
+    const buyersMap = new Map();
+    for (const t of (tradesRes?.trades || [])) {
+      const traderAddr = t.trader?.toLowerCase();
+      if (vaultMap && vaultMap.has(traderAddr)) {
+        const vw = vaultMap.get(traderAddr);
+        const cur = buyersMap.get(traderAddr) || { wallet: traderAddr, label: vw.label, usdVolume: 0 };
+        cur.usdVolume += Number(t.usd) || 0;
+        buyersMap.set(traderAddr, cur);
+      }
+    }
+
+    const buyerPoints = Array.from(buyersMap.values()).map(b => {
+      const pts = Number((b.usdVolume * 3.9).toFixed(2));
+      return {
+        wallet: b.wallet,
+        label: b.label,
+        usdVolume: Number(b.usdVolume.toFixed(2)),
+        points: pts,
+      };
+    });
+
+    const data = {
+      deployerPoints: Number(deployerPoints.toFixed(2)),
+      pilotPoints: Number(pilotPoints.toFixed(2)),
+      buyerPoints,
+      totalBuyerPoints: buyerPoints.reduce((acc, b) => acc + b.points, 0),
+    };
+    tokenPointsCache.set(key, { at: Date.now(), data });
+    return data;
+  } catch {
+    return { deployerPoints: 0, pilotPoints: 0, buyerPoints: [], totalBuyerPoints: 0 };
+  }
+}
+
 export function createApp({
   dataDir = resolve('data'),
   assetDir = resolve('assets'),
@@ -310,21 +360,26 @@ export function createApp({
         const publicWalletMap = new Map((state.wallets || []).map(w => [w.address.toLowerCase(), w]));
         const launchesMap = new Map((state.launches || []).map(l => [l.curve?.toLowerCase(), l]));
 
-        const byCurve = feeData.map(f => {
+        const byCurve = await Promise.all(feeData.map(async f => {
           const launch = launchesMap.get(f.curve.toLowerCase());
           const vaultWallet = vaultMap.get(f.feeRecipient?.toLowerCase());
           const publicWallet = publicWalletMap.get(f.feeRecipient?.toLowerCase());
+          const tokenAddr = f.token || launch?.token || '';
+          const pts = await getLiveTokenPoints(tokenAddr, vaultMap);
           return {
             ...f,
             name: launch?.name || '',
             symbol: launch?.symbol || '',
-            token: f.token || launch?.token || '',
+            token: tokenAddr,
             walletLabel: vaultWallet?.label || publicWallet?.label || '',
             isMine: Boolean(vaultWallet),
             confirmedAt: launch?.confirmedAt || null,
             txHash: launch?.hash || '',
+            deployerPoints: pts?.deployerPoints || 0,
+            pilotPoints: pts?.pilotPoints || 0,
+            buyerPoints: pts?.buyerPoints || [],
           };
-        });
+        }));
 
         const byWallet = {};
         for (const item of byCurve) {
@@ -341,22 +396,60 @@ export function createApp({
               totalBalanceEth: 0,
               stockSymbol: item.stockSymbol || 'SPCX',
               curves: [],
+              totalDeployerPoints: 0,
+              totalBuyerPoints: 0,
             };
           }
           const num = Number(item.balanceEth) || 0;
           byWallet[addr].totalBalanceEth += num;
+          byWallet[addr].totalDeployerPoints += (item.deployerPoints || 0);
           byWallet[addr].curves.push(item);
+        }
+
+        // Add buyer points to byWallet for wallets that bought tokens
+        for (const item of byCurve) {
+          for (const b of (item.buyerPoints || [])) {
+            const buyerAddr = b.wallet.toLowerCase();
+            if (!byWallet[buyerAddr]) {
+              const vw = vaultMap.get(buyerAddr);
+              const pw = publicWalletMap.get(buyerAddr);
+              byWallet[buyerAddr] = {
+                address: b.wallet,
+                label: b.label || vw?.label || pw?.label || (b.wallet.slice(0, 6) + '…' + b.wallet.slice(-4)),
+                isVault: Boolean(vw),
+                vaultId: vw?.id || null,
+                totalBalanceEth: 0,
+                stockSymbol: 'ETH',
+                curves: [],
+                totalDeployerPoints: 0,
+                totalBuyerPoints: 0,
+              };
+            }
+            byWallet[buyerAddr].totalBuyerPoints += (b.points || 0);
+          }
         }
 
         for (const w of Object.values(byWallet)) {
           w.totalBalanceEth = w.totalBalanceEth.toFixed(6).replace(/\.?0+$/, '');
           if (w.totalBalanceEth === '') w.totalBalanceEth = '0';
+          w.totalDeployerPoints = Number((w.totalDeployerPoints || 0).toFixed(2));
+          w.totalBuyerPoints = Number((w.totalBuyerPoints || 0).toFixed(2));
         }
+
+        const enrichedLaunches = await Promise.all((state.launches || []).map(async l => {
+          const pts = await getLiveTokenPoints(l.token, vaultMap);
+          return {
+            ...l,
+            deployerPoints: pts?.deployerPoints || 0,
+            pilotPoints: pts?.pilotPoints || 0,
+            buyerPoints: pts?.buyerPoints || [],
+          };
+        }));
 
         return send(200, {
           byCurve,
           byWallet,
-          launches: state.launches || [],
+          launches: enrichedLaunches,
         });
       }
       if (req.method === 'POST' && path === '/api/fees/claim') {

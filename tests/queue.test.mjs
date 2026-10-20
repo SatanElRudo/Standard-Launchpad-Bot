@@ -18,7 +18,7 @@ test('template imports, paths stay within assets and files are size/type checked
   await mkdir(assets);
   try {
     const rows = importQueue(await readFile('examples/launch-queue.csv', 'utf8'), assets);
-    assert.equal(rows.length, 20); assert.equal(rows[0].metadataURI, '');
+    assert.equal(rows.length, 200); assert.equal(rows[0].metadataURI, '');
     assert.equal(rows[0].imagePath, join(assets, 'cat1.jpg'));
     assert.throws(() => importQueue('name,symbol,country,image_path\nBad,BAD,us,../secret.png', assets), /assets/);
     assert.throws(() => importQueue('name,symbol,country,image_path\nBad,BAD,us,assets/a.svg', assets), /PNG/);

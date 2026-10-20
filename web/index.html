@@ -281,12 +281,12 @@
             </div>
             <div class="divider"></div>
             <label class="checkbox"><input type="checkbox" id="auto-launcher-monitor-enabled" checked> <strong>Automatisches Monitoring für Queue-Launches aktivieren</strong></label>
-            <p class="field-help">Startet sofort bei Bestätigung jedes Queue-Tokens einen Monitor (150k MC, +50% Gain, 30% Drawdown). Kann pro CSV-Zeile über <code>monitor_rules</code> oder <code>monitor_enabled</code> überschrieben werden.</p>
-            <label class="checkbox"><input type="checkbox" id="auto-launcher-auto-sell"> <strong>Automatischer Verkauf bei Trigger (Auto-Exit für Queue)</strong></label>
-            <div id="auto-launcher-sell-mode-box" class="fields" hidden>
+            <p class="field-help">Startet sofort bei Bestätigung jedes Queue-Tokens einen Monitor (5k MC, +50% Gain, 30% Drawdown). Kann pro CSV-Zeile über <code>monitor_rules</code> oder <code>monitor_enabled</code> überschrieben werden.</p>
+            <label class="checkbox"><input type="checkbox" id="auto-launcher-auto-sell" checked> <strong>Automatischer Verkauf bei Trigger (Auto-Exit für Queue)</strong></label>
+            <div id="auto-launcher-sell-mode-box" class="fields">
               <label>Verkaufs-Modus bei Trigger
                 <select id="auto-launcher-sell-mode">
-                  <option value="all">Alle Snipe-Wallets verkaufen (100 %)</option>
+                  <option value="all" selected>Alle Snipe-Wallets verkaufen (100 %)</option>
                   <option value="n_minus_1">N-1 verkaufen (Günstigste Wallet als Moonbag behalten)</option>
                 </select>
               </label>

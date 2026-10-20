@@ -166,11 +166,18 @@ export async function executeSnipeBuy({
     ],
   });
 
+  let gasPrice;
+  try {
+    const baseGasPrice = await customClient.getGasPrice();
+    gasPrice = baseGasPrice * 130n / 100n; // 30% priority fee bump to be mined first
+  } catch {}
+
   const hash = await walletClient.sendTransaction({
     to: deployment.router,
     data: buyData,
     value: isNativeEth ? amountInWei : 0n,
     gas: 350_000n,
+    ...(gasPrice ? { gasPrice } : {}),
   });
 
   if (customClient.waitForTransactionReceipt) {

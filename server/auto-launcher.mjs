@@ -39,8 +39,10 @@ export function createAutoLauncher({
       holdSeconds: 10,
       cooldownSeconds: 60,
       once: true,
+      autoSell: true,
+      autoSellMode: 'all',
       rules: [
-        { metric: 'marketCapUsd', operator: 'gte', threshold: 150000 },
+        { metric: 'marketCapUsd', operator: 'gte', threshold: 5000 },
         { metric: 'priceChangePct', operator: 'gte', threshold: 50 },
         { metric: 'drawdownPct', operator: 'gte', threshold: 30 }
       ]
@@ -63,8 +65,10 @@ export function createAutoLauncher({
     holdSeconds: 10,
     cooldownSeconds: 60,
     once: true,
+    autoSell: true,
+    autoSellMode: 'all',
     rules: [
-      { metric: 'marketCapUsd', operator: 'gte', threshold: 150000 },
+      { metric: 'marketCapUsd', operator: 'gte', threshold: 5000 },
       { metric: 'priceChangePct', operator: 'gte', threshold: 50 },
       { metric: 'drawdownPct', operator: 'gte', threshold: 30 }
     ]
@@ -331,7 +335,7 @@ export function createAutoLauncher({
         } catch {
           // RPC delay or pending
         }
-        await new Promise(r => setTimeout(r, 250));
+        await new Promise(r => setTimeout(r, 100));
       }
 
       if (result?.status === 'success') {
@@ -347,47 +351,9 @@ export function createAutoLauncher({
           at: Date.now(),
         };
         al.lastError = null;
-        state.alerts.unshift({
-          id: randomUUID(),
-          category: 'success',
-          name: `Auto-Launch: ${item.name}`,
-          message: `Token erfolgreich auf Robinhood Chain gelauncht: ${result.token}`,
-          at: Date.now(),
-          token: result.token,
-          metrics: {},
-        });
 
-        let createdMon = null;
-        if (typeof createMonitorFn === 'function') {
-          try {
-            const monCfg = item.monitor || al.defaultMonitor || { enabled: true };
-            if (monCfg.enabled !== false) {
-              createdMon = createMonitorFn({
-                token: result.token,
-                curve: result.curve,
-                country: item.country || 'us',
-                name: `${item.name} ($${item.symbol})`,
-                monitorConfig: monCfg,
-                creatorWallet: wallet.address,
-                creatorLabel: wallet.label,
-              });
-              if (createdMon) {
-                state.alerts.unshift({
-                  id: randomUUID(),
-                  category: 'info',
-                  name: `Auto-Monitor aktiv: ${item.name}`,
-                  message: `Monitoring für ${result.token} sofort gestartet (${createdMon.rules?.length || 1} Trigger-Regeln).`,
-                  at: Date.now(),
-                  token: result.token,
-                  metrics: {},
-                });
-              }
-            }
-          } catch (me) {
-            console.error('Auto-launcher monitor creation error:', me);
-          }
-        }
-
+        // 1. PRIORITY EXECUTION: Execute snipe purchase IMMEDIATELY before any other background processing
+        let snipeRes = [];
         if (typeof snipeFn === 'function' && Array.isArray(al.snipeOrders) && al.snipeOrders.length > 0 && result.curve) {
           try {
             const country = item.country || 'us';
@@ -398,7 +364,7 @@ export function createAutoLauncher({
                 amount: pairAmt,
               };
             });
-            const snipeRes = await snipeFn({
+            snipeRes = await snipeFn({
               curve: result.curve,
               token: result.token,
               country: item.country,
@@ -407,11 +373,6 @@ export function createAutoLauncher({
               referrer: effectiveRef,
               vault,
             });
-            if (createdMon) {
-              createdMon.purchases = snipeRes;
-              createdMon.curve = result.curve;
-              createdMon.country = item.country || 'us';
-            }
             for (const s of snipeRes) {
               state.alerts.unshift({
                 id: randomUUID(),
@@ -427,6 +388,53 @@ export function createAutoLauncher({
             }
           } catch (e) {
             console.error('Auto-launcher snipe error:', e);
+          }
+        }
+
+        state.alerts.unshift({
+          id: randomUUID(),
+          category: 'success',
+          name: `Auto-Launch: ${item.name}`,
+          message: `Token erfolgreich auf Robinhood Chain gelauncht: ${result.token}`,
+          at: Date.now(),
+          token: result.token,
+          metrics: {},
+        });
+
+        // 2. Initialize monitor with the already-executed purchases attached
+        let createdMon = null;
+        if (typeof createMonitorFn === 'function') {
+          try {
+            const monCfg = item.monitor || al.defaultMonitor || { enabled: true };
+            if (monCfg.enabled !== false) {
+              createdMon = createMonitorFn({
+                token: result.token,
+                curve: result.curve,
+                country: item.country || 'us',
+                name: `${item.name} ($${item.symbol})`,
+                monitorConfig: monCfg,
+                creatorWallet: wallet.address,
+                creatorLabel: wallet.label,
+              });
+              if (createdMon) {
+                if (snipeRes.length > 0) {
+                  createdMon.purchases = snipeRes;
+                  createdMon.curve = result.curve;
+                  createdMon.country = item.country || 'us';
+                }
+                state.alerts.unshift({
+                  id: randomUUID(),
+                  category: 'info',
+                  name: `Auto-Monitor aktiv: ${item.name}`,
+                  message: `Monitoring für ${result.token} sofort gestartet (${createdMon.rules?.length || 1} Trigger-Regeln).`,
+                  at: Date.now(),
+                  token: result.token,
+                  metrics: {},
+                });
+              }
+            }
+          } catch (me) {
+            console.error('Auto-launcher monitor creation error:', me);
           }
         }
 

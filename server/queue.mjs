@@ -100,7 +100,7 @@ export function parseMonitorConfig(row) {
   return {
     enabled: true,
     rules: rules.length > 0 ? rules : [
-      { metric: 'marketCapUsd', operator: 'gte', threshold: 150000 },
+      { metric: 'marketCapUsd', operator: 'gte', threshold: 5000 },
       { metric: 'priceChangePct', operator: 'gte', threshold: 50 },
       { metric: 'drawdownPct', operator: 'gte', threshold: 30 }
     ],

@@ -840,14 +840,14 @@ $('#auto-launcher-form').onsubmit = e => { e.preventDefault(); busy(e.submitter,
 
   const defaultMonitor = {
     enabled: $('#auto-launcher-monitor-enabled')?.checked ?? true,
-    autoSell: $('#auto-launcher-auto-sell')?.checked ?? false,
+    autoSell: $('#auto-launcher-auto-sell')?.checked ?? true,
     autoSellMode: $('#auto-launcher-sell-mode')?.value || 'all',
     mode: 'any',
     holdSeconds: 10,
     cooldownSeconds: 60,
     once: true,
     rules: [
-      { metric: 'marketCapUsd', operator: 'gte', threshold: 150000 },
+      { metric: 'marketCapUsd', operator: 'gte', threshold: 5000 },
       { metric: 'priceChangePct', operator: 'gte', threshold: 50 },
       { metric: 'drawdownPct', operator: 'gte', threshold: 30 },
     ],
@@ -1013,6 +1013,12 @@ function renderDashboard(state, feeData) {
               <small class="subtle dash-fee-label">OFFENE GEBÜHREN</small>
               <div class="dash-fee-amount">${esc(w.totalBalanceEth)} ${esc(w.stockSymbol || 'SPCX')}</div>
             </div>
+            ${(w.totalDeployerPoints || w.totalBuyerPoints) ? `
+              <div class="dash-points-summary-row" style="margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap;">
+                ${w.totalDeployerPoints ? `<span class="pill pill-mini pill-highlight" title="Verifizierte Deployer-Punkte auf Standard Reserve">👑 ${esc(w.totalDeployerPoints.toLocaleString('de-DE'))} Deployer-Pkt</span>` : ''}
+                ${w.totalBuyerPoints ? `<span class="pill pill-mini pill-active" title="Echte Trading-Punkte auf Standard Reserve">🛒 ${esc(w.totalBuyerPoints.toLocaleString('de-DE'))} Buyer-Pkt</span>` : ''}
+              </div>
+            ` : ''}
             <div class="dash-curves-box">
               <small class="subtle dash-curves-title">Aufgelaufene Tokens (${w.curves.length}):</small>
               ${w.curves.map(c => `
@@ -1057,6 +1063,9 @@ function renderDashboard(state, feeData) {
               <strong class="dash-token-title">${esc(l.name)}</strong>
               <span class="pill pill-mini">$${esc(l.symbol)}</span>
               ${hasFees ? `<span class="pill pill-mini pill-active">💰 ${esc(formattedFee)} ${esc(stockSym)}</span>` : ''}
+              ${l.deployerPoints ? `<span class="pill pill-mini pill-highlight" title="Verifizierte Deployer-Punkte auf Standard Reserve">👑 Deployer: ${esc(l.deployerPoints.toLocaleString('de-DE'))} Pkt</span>` : ''}
+              ${l.pilotPoints ? `<span class="pill pill-mini" title="Pilot-Punkte des Tokens auf Standard Reserve">🚀 Token: ${esc(l.pilotPoints.toLocaleString('de-DE'))} Pkt</span>` : ''}
+              ${(l.buyerPoints || []).length ? l.buyerPoints.map(b => `<span class="pill pill-mini pill-active" title="${esc(b.label)} (${esc(short(b.wallet))}): $${b.usdVolume} Handelsvolumen">🛒 ${esc(b.label)}: ${esc(b.points.toLocaleString('de-DE'))} Pkt</span>`).join('') : ''}
             </div>
             <small class="dash-contracts-line">
               Token: <a class="text-link" href="${state.deployment.explorer}/address/${esc(l.token)}" target="_blank" rel="noopener noreferrer">${esc(l.token)} ↗</a>
@@ -1127,7 +1136,7 @@ function renderNextTokenCard(item, al) {
   const payout = item.payout || 'at exit';
   const devBuy = item.devBuy || 'off';
   const snipeTax = item.snipeTax || 'off';
-  const mcap = item.monitor?.rules?.[0]?.threshold || 150000;
+  const mcap = item.monitor?.rules?.[0]?.threshold || 5000;
   const sellMode = item.monitor?.autoSellMode || 'all';
   const assetName = item.imagePath ? item.imagePath.split('/').pop().split('\\').pop() : 'Kein lokales Bild';
 

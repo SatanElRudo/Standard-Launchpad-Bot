@@ -111,7 +111,7 @@ try {
   await page.locator('[data-page="queue"]').click();
   await page.locator('#queue-file').setInputFiles('examples/launch-queue.csv');
   await page.locator('#queue-form button[type="submit"]').click();
-  await expect(page.locator('#queue-feedback')).toContainText('20 Entwürfe importiert');
+  await expect(page.locator('#queue-feedback')).toContainText('200 Entwürfe importiert');
   await expect(page.locator('#queue')).toContainText('Space Kitty');
   await page.locator('[data-action="load-queue"]').first().click();
   await expect(page.locator('#token-name')).toHaveValue('Space Kitty');
