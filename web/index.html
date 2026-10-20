@@ -204,6 +204,10 @@
             <label class="checkbox"><input type="checkbox" id="auto-launcher-snipe-enabled"> <strong>Erstkauf (Snipe) bei automatischem Launch durchführen</strong></label>
             <div id="auto-launcher-snipe-box" class="panel compact" hidden>
               <p class="field-help" id="auto-snipe-currency-help">Kaufwährung hängt vom Paar ab (z. B. $SPCX für USA). Wähle bis zu 10 Wallets und Betrag:</p>
+              <div class="item-actions">
+                <button type="button" id="auto-snipe-select-all" class="text-button">Alle auswählen</button>
+                <button type="button" id="auto-snipe-select-none" class="text-button">Keine</button>
+              </div>
               <p class="field-help"><strong>🛡️ Anti-Frontrun Schutz:</strong> Bricht Käufe ab bzw. revertiert on-chain, wenn fremde Bots vor uns gekauft haben.</p>
               <div id="auto-snipe-wallets-list" class="item-list"></div>
             </div>

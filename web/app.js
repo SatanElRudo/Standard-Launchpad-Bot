@@ -17,6 +17,8 @@ let stockBalances = {};
 let pendingSnipe = null;
 let pendingLaunchMonitor = null;
 let claimableFeesMap = {};
+let autoLauncherFormInitialized = false;
+let lastWalletChoiceSig = '';
 const alerted = new Set();
 let booted = false;
 let fastPoller = null;
@@ -59,6 +61,9 @@ function navigate(page) {
   document.querySelectorAll('.page').forEach(el => el.hidden = el.id !== `page-${page}`);
   document.querySelectorAll('.nav').forEach(el => el.classList.toggle('active', el.dataset.page === page));
   $('#page-label').textContent = { launch: 'Token launchen', queue: 'Entwurfs-Queue', monitor: 'Monitoring', wallets: 'Wallets & Tresor', alerts: 'Alerts' }[page];
+  if (page === 'queue') {
+    void updateSnipeWallets(state.queue?.[0]?.country || 'us');
+  }
 }
 document.querySelectorAll('.nav').forEach(button => button.onclick = () => navigate(button.dataset.page));
 
@@ -263,7 +268,18 @@ $('#launch-snipe-enabled').onchange = e => {
 };
 $('#auto-launcher-snipe-enabled').onchange = e => {
   $('#auto-launcher-snipe-box').hidden = !e.target.checked;
+  if (e.target.checked) void updateSnipeWallets(state.queue?.[0]?.country || 'us');
 };
+if ($('#auto-snipe-select-all')) {
+  $('#auto-snipe-select-all').onclick = () => {
+    document.querySelectorAll('#auto-snipe-wallets-list .auto-snipe-checkbox').forEach(cb => cb.checked = true);
+  };
+}
+if ($('#auto-snipe-select-none')) {
+  $('#auto-snipe-select-none').onclick = () => {
+    document.querySelectorAll('#auto-snipe-wallets-list .auto-snipe-checkbox').forEach(cb => cb.checked = false);
+  };
+}
 
 function launchRuleRow(rule = { metric: 'marketCapUsd', operator: 'gte', threshold: 150000 }) {
   const row = document.createElement('div'); row.className = 'rule-row';
@@ -373,13 +389,23 @@ async function updateSnipeWallets(country = 'us') {
 
   // Render auto launcher snipe list
   const autoChecked = new Set();
-  document.querySelectorAll('#auto-snipe-wallets-list .auto-snipe-checkbox:checked').forEach(cb => autoChecked.add(cb.dataset.walletId));
   const autoAmounts = {};
-  document.querySelectorAll('#auto-snipe-wallets-list .auto-snipe-wallet-row').forEach(row => {
-    const id = row.querySelector('.auto-snipe-checkbox')?.dataset.walletId;
-    const amt = row.querySelector('.auto-snipe-amount-input')?.value;
-    if (id && amt) autoAmounts[id] = amt;
-  });
+  const existingAutoDoms = document.querySelectorAll('#auto-snipe-wallets-list .auto-snipe-checkbox');
+  if (existingAutoDoms.length > 0) {
+    document.querySelectorAll('#auto-snipe-wallets-list .auto-snipe-checkbox:checked').forEach(cb => autoChecked.add(cb.dataset.walletId));
+    document.querySelectorAll('#auto-snipe-wallets-list .auto-snipe-wallet-row').forEach(row => {
+      const id = row.querySelector('.auto-snipe-checkbox')?.dataset.walletId;
+      const amt = row.querySelector('.auto-snipe-amount-input')?.value;
+      if (id && amt) autoAmounts[id] = amt;
+    });
+  } else {
+    (state.autoLauncher?.snipeOrders || []).forEach(o => {
+      if (o.walletId) {
+        autoChecked.add(o.walletId);
+        autoAmounts[o.walletId] = o.amount;
+      }
+    });
+  }
 
   render('#auto-snipe-wallets-list', vaultWallets.map(w => {
     const bal = stockBalances[w.address.toLowerCase()] ?? '0';
@@ -756,10 +782,11 @@ $('#auto-launcher-form').onsubmit = e => { e.preventDefault(); busy(e.submitter,
   };
 
   await post('/auto-launcher/config', { enabled, intervalMinutes, walletMode, defaultWalletId, rotationWalletIds, snipeOrders, defaultMonitor });
+  autoLauncherFormInitialized = false;
   await refresh();
   show(enabled
     ? `Automatischer Launch aktiviert (alle ${intervalMinutes} min, ${walletMode === 'rotate' ? `Rotation über ${rotationWalletIds.length} Wallets` : 'feste Wallet'}).`
-    : 'Automatischer Launch pausiert.');
+    : 'Automatischer Launch pausiert (Einstellungen gespeichert).');
 }); };
 
 $('#auto-launcher-trigger-now').onclick = () => busy($('#auto-launcher-trigger-now'), async () => {
@@ -864,10 +891,7 @@ async function refresh() {
     // Auto launcher controls
     const al = state.autoLauncher;
     if (al) {
-      $('#auto-launcher-enabled').checked = Boolean(al.enabled);
-      if (document.activeElement !== $('#auto-launcher-interval')) {
-        $('#auto-launcher-interval').value = al.intervalMinutes || 5;
-      }
+      // 1. Live status badge and countdown (non-destructive)
       let badgeText = 'Pausiert';
       let badgeClass = 'pill offline';
       if (al.status === 'paused_insufficient_funds') {
@@ -888,38 +912,6 @@ async function refresh() {
       $('#auto-launcher-badge').className = badgeClass;
 
       const isRotate = al.walletMode === 'rotate';
-      if (document.activeElement !== $('#auto-wallet-mode-single') && document.activeElement !== $('#auto-wallet-mode-rotate')) {
-        $('#auto-wallet-mode-rotate').checked = isRotate;
-        $('#auto-wallet-mode-single').checked = !isRotate;
-        $('#auto-launcher-rotate-box').hidden = !isRotate;
-        $('#auto-launcher-single-box').hidden = isRotate;
-      }
-
-      // Render rotation wallets list
-      const currentRotateChecked = new Set();
-      const existingDomCbs = document.querySelectorAll('#auto-rotate-wallets-list .auto-rotate-checkbox');
-      if (existingDomCbs.length > 0) {
-        existingDomCbs.forEach(cb => { if (cb.checked) currentRotateChecked.add(cb.dataset.walletId); });
-      } else {
-        (al.rotationWalletIds || []).forEach(id => currentRotateChecked.add(id));
-      }
-
-      render('#auto-rotate-wallets-list', vaultWallets.length ? vaultWallets.map(w => {
-        const checked = currentRotateChecked.has(w.id);
-        const isNext = isRotate && al.nextWallet?.id === w.id;
-        return `
-          <div class="item auto-rotate-wallet-row">
-            <div class="snipe-row">
-              <input type="checkbox" class="auto-rotate-checkbox" data-wallet-id="${esc(w.id)}" ${checked ? 'checked' : ''}>
-              <div>
-                <strong>🔒 ${esc(w.label)}</strong> ${isNext ? '<span class="pill pill-mini">Als Nächste an der Reihe ➔</span>' : ''}
-                <small>${esc(short(w.address))} · Guthaben: <strong>${esc(w.balanceEth)} ETH</strong></small>
-              </div>
-            </div>
-          </div>
-        `;
-      }).join('') : '<div class="empty">Noch keine Wallets im Tresor. Bitte zuerst im Menü Wallets anlegen.</div>');
-
       let infoText = isRotate
         ? `Führt alle ${al.intervalMinutes} Minuten den nächsten Eintrag der Queue aus und rotiert reihum durch ${al.rotationWalletIds?.length || 0} angewählte Tresor-Wallets.`
         : `Führt alle ${al.intervalMinutes} Minuten den nächsten Eintrag der Queue mit der festen Standard-Wallet aus (Fallback oder CSV).`;
@@ -929,28 +921,67 @@ async function refresh() {
       if (al.lastError) infoText += ` Fehler: ${al.lastError}`;
       $('#auto-launcher-info').textContent = infoText;
 
-      const curDef = $('#auto-launcher-default-wallet').value || al.defaultWalletId;
-      render('#auto-launcher-default-wallet', '<option value="">Keine Standard-Wallet</option>' + vaultWallets.map(w => `<option value="${esc(w.id)}" ${w.id === curDef ? 'selected' : ''}>${esc(w.label)} · ${short(w.address)} (${esc(w.balanceEth)} ETH)</option>`).join(''));
+      // 2. Initialize inputs ONCE so polling never blows away user's typing/toggling
+      if (!autoLauncherFormInitialized) {
+        autoLauncherFormInitialized = true;
+        $('#auto-launcher-enabled').checked = Boolean(al.enabled);
+        $('#auto-launcher-interval').value = al.intervalMinutes || 5;
 
-      // If auto-launcher snipe orders were configured, reflect checkbox state
-      if (al.snipeOrders && al.snipeOrders.length > 0 && !$('#auto-launcher-snipe-enabled').checked) {
-        $('#auto-launcher-snipe-enabled').checked = true;
-        $('#auto-launcher-snipe-box').hidden = false;
-      }
+        $('#auto-wallet-mode-rotate').checked = isRotate;
+        $('#auto-wallet-mode-single').checked = !isRotate;
+        $('#auto-launcher-rotate-box').hidden = !isRotate;
+        $('#auto-launcher-single-box').hidden = isRotate;
 
-      if (al.defaultMonitor) {
-        if ($('#auto-launcher-monitor-enabled')) {
-          $('#auto-launcher-monitor-enabled').checked = al.defaultMonitor.enabled !== false;
+        render('#auto-launcher-default-wallet', '<option value="">Keine Standard-Wallet</option>' + vaultWallets.map(w => `<option value="${esc(w.id)}" ${w.id === al.defaultWalletId ? 'selected' : ''}>${esc(w.label)} · ${short(w.address)} (${esc(w.balanceEth)} ETH)</option>`).join(''));
+
+        if (al.snipeOrders && al.snipeOrders.length > 0) {
+          $('#auto-launcher-snipe-enabled').checked = true;
+          $('#auto-launcher-snipe-box').hidden = false;
         }
-        if ($('#auto-launcher-auto-sell')) {
-          $('#auto-launcher-auto-sell').checked = Boolean(al.defaultMonitor.autoSell);
-          if ($('#auto-launcher-sell-mode-box')) {
-            $('#auto-launcher-sell-mode-box').hidden = !al.defaultMonitor.autoSell;
+
+        if (al.defaultMonitor) {
+          if ($('#auto-launcher-monitor-enabled')) {
+            $('#auto-launcher-monitor-enabled').checked = al.defaultMonitor.enabled !== false;
+          }
+          if ($('#auto-launcher-auto-sell')) {
+            $('#auto-launcher-auto-sell').checked = Boolean(al.defaultMonitor.autoSell);
+            if ($('#auto-launcher-sell-mode-box')) {
+              $('#auto-launcher-sell-mode-box').hidden = !al.defaultMonitor.autoSell;
+            }
+          }
+          if ($('#auto-launcher-sell-mode') && al.defaultMonitor.autoSellMode) {
+            $('#auto-launcher-sell-mode').value = al.defaultMonitor.autoSellMode;
           }
         }
-        if ($('#auto-launcher-sell-mode') && al.defaultMonitor.autoSellMode) {
-          $('#auto-launcher-sell-mode').value = al.defaultMonitor.autoSellMode;
-        }
+
+        const savedRotateSet = new Set(al.rotationWalletIds || []);
+        render('#auto-rotate-wallets-list', vaultWallets.length ? vaultWallets.map(w => {
+          const checked = savedRotateSet.has(w.id);
+          const isNext = isRotate && al.nextWallet?.id === w.id;
+          return `
+            <div class="item auto-rotate-wallet-row">
+              <div class="snipe-row">
+                <input type="checkbox" class="auto-rotate-checkbox" data-wallet-id="${esc(w.id)}" ${checked ? 'checked' : ''}>
+                <div>
+                  <strong>🔒 ${esc(w.label)}</strong> <span class="next-pill-container">${isNext ? '<span class="pill pill-mini">Als Nächste an der Reihe ➔</span>' : ''}</span>
+                  <small>${esc(short(w.address))} · Guthaben: <strong>${esc(w.balanceEth)} ETH</strong></small>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('') : '<div class="empty">Noch keine Wallets im Tresor. Bitte zuerst im Menü Wallets anlegen.</div>');
+
+        void updateSnipeWallets(state.queue?.[0]?.country || 'us');
+      } else {
+        // Subsequent poll: only update the next-wallet indicator badge without touching checkboxes or rebuilding the DOM!
+        document.querySelectorAll('#auto-rotate-wallets-list .auto-rotate-wallet-row').forEach(row => {
+          const id = row.querySelector('.auto-rotate-checkbox')?.dataset.walletId;
+          const container = row.querySelector('.next-pill-container');
+          if (container) {
+            const isNext = isRotate && al.nextWallet?.id === id;
+            container.innerHTML = isNext ? '<span class="pill pill-mini">Als Nächste an der Reihe ➔</span>' : '';
+          }
+        });
       }
     }
 
@@ -990,16 +1021,20 @@ async function refresh() {
     }).join('') : '<div class="empty">Noch keine Entwürfe importiert. Nutze die CSV-Vorlage als Ausgangspunkt.</div>');
 
     // Wallet Choice dropdown in launch form
-    const selected = $('#wallet-choice').value;
-    let optHtml = '<option value="">Adresse eingeben oder Wallet verbinden</option>';
-    if (vaultWallets.length) {
-      optHtml += '<optgroup label="Tresor-Wallets (Direktsignatur)">' + vaultWallets.map(w => `<option value="${esc(w.address)}">🔒 ${esc(w.label)} · ${short(w.address)} (${esc(w.balanceEth)} ETH)</option>`).join('') + '</optgroup>';
+    const walletChoiceSig = vaultWallets.map(w => w.address + w.balanceEth).join(',') + '|' + state.wallets.map(w => w.address).join(',');
+    if (walletChoiceSig !== lastWalletChoiceSig && document.activeElement !== $('#wallet-choice')) {
+      lastWalletChoiceSig = walletChoiceSig;
+      const selected = $('#wallet-choice').value;
+      let optHtml = '<option value="">Adresse eingeben oder Wallet verbinden</option>';
+      if (vaultWallets.length) {
+        optHtml += '<optgroup label="Tresor-Wallets (Direktsignatur)">' + vaultWallets.map(w => `<option value="${esc(w.address)}">🔒 ${esc(w.label)} · ${short(w.address)} (${esc(w.balanceEth)} ETH)</option>`).join('') + '</optgroup>';
+      }
+      if (state.wallets.length) {
+        optHtml += '<optgroup label="Beobachtungs-Adressen (Browser-Signatur)">' + state.wallets.map(w => `<option value="${esc(w.address)}">${esc(w.label)} · ${short(w.address)}</option>`).join('') + '</optgroup>';
+      }
+      render('#wallet-choice', optHtml);
+      $('#wallet-choice').value = selected;
     }
-    if (state.wallets.length) {
-      optHtml += '<optgroup label="Beobachtungs-Adressen (Browser-Signatur)">' + state.wallets.map(w => `<option value="${esc(w.address)}">${esc(w.label)} · ${short(w.address)}</option>`).join('') + '</optgroup>';
-    }
-    render('#wallet-choice', optHtml);
-    $('#wallet-choice').value = selected;
 
     render('#drafts', state.drafts.length ? state.drafts.map(d => `<div class="item"><div><strong>${esc(d.name)} <span class="subtle">$${esc(d.symbol)}</span></strong><small>${esc(state.deployment.stocks[d.country].symbol)} · ${esc(short(d.wallet))}</small></div><div class="item-actions"><button class="text-button" data-action="load-draft" data-id="${d.id}">Laden ↗</button><button class="text-button" data-action="delete-drafts" data-id="${d.id}">Entfernen</button></div></div>`).join('') : '<div class="empty">Noch kein Entwurf. Speichere deine Token-Details, um später weiterzumachen.</div>');
     render('#wallets', state.wallets.length ? state.wallets.map(w => `<div class="item"><div><strong>${esc(w.label)}</strong><small>${esc(w.address)}</small></div><div class="item-actions"><button class="text-button" data-action="choose-wallet" data-id="${w.id}">Für Launch verwenden ↗</button><button class="text-button" data-action="delete-wallets" data-id="${w.id}">Entfernen</button></div></div>`).join('') : '<div class="empty">Noch keine Beobachtungs-Adressen gespeichert.</div>');
