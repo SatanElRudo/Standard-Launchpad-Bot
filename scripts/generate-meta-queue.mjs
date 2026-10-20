@@ -272,8 +272,8 @@ console.log(`Total rows to save: ${allRows.length}`);
 const header = "name,symbol,country,description,image_path,after_graduates,charter_drop,charter_payout,dev_buy,snipe_tax,monitor_enabled,monitor_rules,monitor_auto_sell,monitor_sell_mode,referrer";
 const finalCsv = [header, ...allRows].join('\n');
 
-fs.writeFileSync('examples/launch-queue.csv', finalCsv, 'utf8');
-fs.writeFileSync('examples/launch-queue.backup.csv', finalCsv, 'utf8');
+fs.writeFileSync('data/launch-queue.csv', finalCsv, 'utf8');
+fs.writeFileSync('data/launch-queue.backup.csv', finalCsv, 'utf8');
 
 // Validate with parseCsv
 const parsed = parseCsv(finalCsv);

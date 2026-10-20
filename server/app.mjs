@@ -4,19 +4,38 @@ import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createStore } from './store.mjs';
 import { marketToken } from './markets.mjs';
-import { launchTerms, prepareLaunch, inspectLaunch, executeDirectLaunch, getBalances, getClaimableFees, executeClaimFees } from './chain.mjs';
+import { launchTerms, prepareLaunch, inspectLaunch, executeDirectLaunch, getBalances, getClaimableFees, executeClaimFees, client } from './chain.mjs';
 import { address, draft, monitor, text, assert } from './validation.mjs';
 import { deployment } from '../shared/deployment.mjs';
 import { evaluateRules } from '../shared/rules.mjs';
 import { importQueue, readQueueImage, createQueueWatcher, validateImagePath } from './queue.mjs';
 import { createVault } from './vault.mjs';
 import { createAutoLauncher } from './auto-launcher.mjs';
-import { getStockBalances, executeMultiSnipe, executeMultiSell } from './sniper.mjs';
+import { getStockBalances, executeMultiSnipe, executeMultiSell, extractPayoutFromReceipt } from './sniper.mjs';
 import { hostImageAndMetadata, listSampleAssets } from './metadata.mjs';
 
 const json = value => JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.toString() : v);
 
 const tokenPointsCache = new Map();
+const walletPointsCache = new Map();
+
+async function getLiveWalletPoints(walletAddr) {
+  if (!walletAddr || !/^0x[0-9a-fA-F]{40}$/.test(walletAddr)) return null;
+  const key = walletAddr.toLowerCase();
+  const cached = walletPointsCache.get(key);
+  if (cached && Date.now() - cached.at < 20_000) return cached.data;
+  try {
+    const res = await fetch(`https://markets.standardreserve.xyz/v1/pilot/wallets/${walletAddr}`)
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null);
+    if (res) {
+      walletPointsCache.set(key, { at: Date.now(), data: res });
+      return res;
+    }
+  } catch {}
+  return null;
+}
+
 async function getLiveTokenPoints(tokenAddr, vaultMap) {
   if (!tokenAddr || !/^0x[0-9a-fA-F]{40}$/.test(tokenAddr)) return null;
   const key = tokenAddr.toLowerCase();
@@ -44,7 +63,8 @@ async function getLiveTokenPoints(tokenAddr, vaultMap) {
     }
 
     const buyerPoints = Array.from(buyersMap.values()).map(b => {
-      const pts = Number((b.usdVolume * 3.9).toFixed(2));
+      // Standard Reserve Season 1 rule: 5.07 points per USD traded on bonding curve (multiplier 5 + bonuses)
+      const pts = Number((b.usdVolume * 5.07).toFixed(2));
       return {
         wallet: b.wallet,
         label: b.label,
@@ -194,6 +214,11 @@ export function createApp({
                     const mon = state.monitors.find(m => m.id === monitorId);
                     if (mon) {
                       mon.sellResults = sellRes;
+                      mon.autoSellResults = sellRes;
+                    }
+                    const matchingLaunch = state.launches.find(l => (l.token || '').toLowerCase() === targetToken.toLowerCase());
+                    if (matchingLaunch) {
+                      matchingLaunch.sellResults = sellRes;
                     }
                     const soldCount = sellRes.filter(r => r.status === 'success').length;
                     const keptWallet = sellRes.find(r => r.status === 'kept_best_entry');
@@ -382,10 +407,15 @@ export function createApp({
       }
       if (req.method === 'GET' && path === '/api/vault/wallets') {
         const wallets = vault.getWallets();
-        const balances = await balanceFn(wallets.map(w => w.address));
+        const addrs = wallets.map(w => w.address);
+        const [balances, spcxBalances] = await Promise.all([
+          balanceFn(addrs),
+          stockBalanceFn(addrs, 'us'),
+        ]);
         const enriched = wallets.map(w => ({
           ...w,
           balanceEth: balances[w.address.toLowerCase()] ?? '0',
+          balanceSpcx: spcxBalances[w.address.toLowerCase()] ?? '0',
         }));
         return send(200, enriched);
       }
@@ -456,14 +486,20 @@ export function createApp({
               isVault: Boolean(vw),
               vaultId: vw?.id || null,
               totalBalanceEth: 0,
-              stockSymbol: item.stockSymbol || 'SPCX',
+              totalBalanceSpcx: 0,
+              feesByCurrency: {},
               curves: [],
               totalDeployerPoints: 0,
               totalBuyerPoints: 0,
             };
           }
-          const num = Number(item.balanceEth) || 0;
+          const num = Number(item.balanceFormatted || item.balanceEth) || 0;
+          const sym = item.stockSymbol || (item.isNativeEth ? 'ETH' : 'SPCX');
+          byWallet[addr].feesByCurrency[sym] = (byWallet[addr].feesByCurrency[sym] || 0) + num;
           byWallet[addr].totalBalanceEth += num;
+          if (sym === 'SPCX') {
+            byWallet[addr].totalBalanceSpcx += num;
+          }
           byWallet[addr].totalDeployerPoints += (item.deployerPoints || 0);
           if (num > 0) {
             byWallet[addr].curves.push(item);
@@ -483,7 +519,8 @@ export function createApp({
                 isVault: Boolean(vw),
                 vaultId: vw?.id || null,
                 totalBalanceEth: 0,
-                stockSymbol: 'ETH',
+                totalBalanceSpcx: 0,
+                feesByCurrency: {},
                 curves: [],
                 totalDeployerPoints: 0,
                 totalBuyerPoints: 0,
@@ -494,10 +531,27 @@ export function createApp({
         }
 
         for (const w of Object.values(byWallet)) {
-          w.totalBalanceEth = w.totalBalanceEth.toFixed(6).replace(/\.?0+$/, '');
-          if (w.totalBalanceEth === '') w.totalBalanceEth = '0';
-          w.totalDeployerPoints = Number((w.totalDeployerPoints || 0).toFixed(2));
-          w.totalBuyerPoints = Number((w.totalBuyerPoints || 0).toFixed(2));
+          w.totalBalanceEth = (w.totalBalanceEth || 0).toFixed(6).replace(/\.?0+$/, '') || '0';
+          w.totalBalanceSpcx = (w.totalBalanceSpcx || 0).toFixed(4).replace(/\.?0+$/, '') || '0';
+          const feeParts = [];
+          for (const [sym, amt] of Object.entries(w.feesByCurrency || {})) {
+            if (amt > 0) {
+              const dec = sym === 'ETH' ? 6 : 4;
+              feeParts.push(`${amt.toFixed(dec).replace(/\.?0+$/, '')} ${sym}`);
+            }
+          }
+          w.feeSummary = feeParts.length > 0 ? feeParts.join(' + ') : '0 ETH';
+          w.hasFees = feeParts.length > 0;
+          const liveWp = await getLiveWalletPoints(w.address);
+          if (liveWp) {
+            const totalTrading = (liveWp.countries || []).reduce((acc, c) => acc + (c.trading || 0), 0);
+            const totalDeployer = (liveWp.countries || []).reduce((acc, c) => acc + (c.deployer || 0), 0);
+            if (totalDeployer > 0) w.totalDeployerPoints = Number(totalDeployer.toFixed(2));
+            if (totalTrading > 0) w.totalBuyerPoints = Number(totalTrading.toFixed(2));
+          } else {
+            w.totalDeployerPoints = Number((w.totalDeployerPoints || 0).toFixed(2));
+            w.totalBuyerPoints = Number((w.totalBuyerPoints || 0).toFixed(2));
+          }
         }
 
         const enrichedLaunches = await Promise.all((state.launches || []).map(async l => {
@@ -509,25 +563,79 @@ export function createApp({
             : (matchingMon?.purchases || []);
           const sellResults = (Array.isArray(l.sellResults) && l.sellResults.length)
             ? l.sellResults
-            : (matchingMon?.sellResults || []);
+            : (matchingMon?.sellResults || matchingMon?.autoSellResults || []);
 
-          let snipeEth = (snipeResults || []).reduce((acc, s) => acc + (Number(s.amount) || 0), 0);
-          let sellEth = (sellResults || []).reduce((acc, s) => acc + (Number(s.ethReceived) || 0), 0);
+          // Backfill payout / ethReceived from on-chain receipt if missing
+          for (const s of sellResults) {
+            if ((!s.ethReceived || s.ethReceived === '0') && s.hash && s.status === 'success') {
+              try {
+                const rc = await client.getTransactionReceipt({ hash: s.hash });
+                if (rc) {
+                  s.ethReceived = extractPayoutFromReceipt(rc, s.address);
+                  s.payoutAmount = s.ethReceived;
+                }
+              } catch {}
+            }
+          }
 
-          // Historical on-chain amounts for the two test launches
+          let snipeEth = 0;
+          let snipeUsd = 0;
+          let snipeStock = 0;
+          let snipeCurrency = l.country === 'us' ? 'SPCX' : 'ETH';
+          for (const s of (snipeResults || [])) {
+            const amt = Number(s.amount) || 0;
+            if (s.currency === 'SPCX') {
+              snipeCurrency = 'SPCX';
+              snipeStock += amt;
+              snipeUsd += amt;
+              snipeEth += amt / 2600;
+            } else {
+              snipeEth += amt;
+              snipeUsd += amt * 2600;
+            }
+          }
+
+          let sellEth = 0;
+          let sellUsd = 0;
+          let sellStock = 0;
+          for (const s of (sellResults || [])) {
+            const amt = Number(s.payoutAmount || s.ethReceived) || 0;
+            if (s.currency === 'SPCX') {
+              sellStock += amt;
+              sellUsd += amt;
+              sellEth += amt / 2600;
+            } else {
+              sellEth += amt;
+              sellUsd += amt * 2600;
+            }
+          }
+
+          // Historical on-chain amounts for the two initial test launches
           if (l.hash === '0xee928cfd534d22d2dec01cd0c0f4e4aad04ea8c778507a73cbb6b82311bc0e93') {
             snipeEth = 0.0042;
+            snipeUsd = 0.0042 * 2600;
             sellEth = 0.004022;
+            sellUsd = 0.004022 * 2600;
           } else if (l.hash === '0x1257cabc11bb3146ce9c6a941609323fdb346b4ae3538a8cb4bc612ed0167505') {
             snipeEth = 0.0042;
+            snipeUsd = 0.0042 * 2600;
             sellEth = 0.004115;
+            sellUsd = 0.004115 * 2600;
           }
 
           const feeItem = byCurve.find(c => c.curve?.toLowerCase() === l.curve?.toLowerCase());
-          const feeAmount = feeItem ? Number(feeItem.balanceEth) : 0;
-          const feesEth = feeAmount > 0 ? feeAmount : (l.hash === '0xee928cfd534d22d2dec01cd0c0f4e4aad04ea8c778507a73cbb6b82311bc0e93' ? 0.00003 : 0);
+          const feeAmount = feeItem ? Number(feeItem.balanceFormatted || feeItem.balanceEth) : (l.hash === '0xee928cfd534d22d2dec01cd0c0f4e4aad04ea8c778507a73cbb6b82311bc0e93' ? 0.00003 : 0);
+          const feeSymbol = feeItem?.stockSymbol || (l.country === 'us' ? 'SPCX' : 'ETH');
+          const isEthFee = feeSymbol === 'ETH' || feeItem?.isNativeEth || l.country === 'eth';
+
+          const feesUsd = isEthFee ? (feeAmount * 2600) : (feeAmount * 1.0);
+          const feesEth = isEthFee ? feeAmount : (feesUsd / 2600);
+          const feesStock = isEthFee ? 0 : feeAmount;
           const launchFeeEth = l.launchFeeEth || 0.0005;
-          const netPnlEth = (sellEth + feesEth) - (launchFeeEth + snipeEth);
+          const launchCostUsd = launchFeeEth * 2600;
+
+          const onchainPnlUsd = (sellUsd + feesUsd) - (launchCostUsd + snipeUsd);
+          const netPnlEth = onchainPnlUsd / 2600;
 
           return {
             ...l,
@@ -537,9 +645,19 @@ export function createApp({
             launchFeeEth,
             snipeEth,
             sellEth,
+            snipeUsd,
+            sellUsd,
+            snipeStock,
+            sellStock,
+            snipeCurrency,
+            feeAmount,
+            feeSymbol,
             feesEth,
+            feesStock,
+            feesUsd,
+            onchainPnlUsd,
             netPnlEth,
-            hasPnlData: Boolean(snipeEth || sellEth),
+            hasPnlData: Boolean(snipeEth || sellEth || snipeStock || sellStock),
           };
         }));
 
@@ -872,6 +990,7 @@ export function createApp({
 
         mon.autoSellExecuted = true;
         mon.autoSellResults = sellRes;
+        mon.sellResults = sellRes;
         
         const matchingLaunch = state.launches.find(l => (l.token || '').toLowerCase() === mon.token.toLowerCase());
         if (matchingLaunch) {

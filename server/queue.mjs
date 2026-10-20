@@ -212,25 +212,31 @@ export function removeRowFromCsv(source, { name, symbol } = {}) {
   return { newCsv, removed };
 }
 
+export const DEFAULT_QUEUE_PATH = 'data/launch-queue.csv';
+
 export function createQueueWatcher({ projectRoot, assetDir, state, store, onSync } = {}) {
   state.queueSync ??= {
-    path: 'examples/launch-queue.csv',
+    path: DEFAULT_QUEUE_PATH,
     lastSyncAt: null,
     error: null,
     count: state.queue?.length ?? 0,
   };
+
+  if (state.queueSync.path === 'examples/launch-queue.csv' || state.queueSync.path === 'examples/launch-queue.backup.csv') {
+    state.queueSync.path = DEFAULT_QUEUE_PATH;
+  }
 
   let activeWatcher = null;
   let debounceTimer = null;
   let isWritingFile = false;
 
   function resolveCsvPath(userPath) {
-    const raw = String(userPath || state.queueSync.path || 'examples/launch-queue.csv').trim();
+    const raw = String(userPath || state.queueSync.path || DEFAULT_QUEUE_PATH).trim();
     return isAbsolute(raw) ? raw : resolve(projectRoot, raw);
   }
 
   async function syncFromFile(filePath) {
-    const targetPath = filePath || state.queueSync.path || 'examples/launch-queue.csv';
+    const targetPath = filePath || state.queueSync.path || DEFAULT_QUEUE_PATH;
     const fullPath = resolveCsvPath(targetPath);
     try {
       const content = await readFile(fullPath, 'utf8');
@@ -252,7 +258,7 @@ export function createQueueWatcher({ projectRoot, assetDir, state, store, onSync
   }
 
   async function removeQueueItemFromFile({ name, symbol } = {}, filePath) {
-    const targetPath = filePath || state.queueSync?.path || 'examples/launch-queue.csv';
+    const targetPath = filePath || state.queueSync?.path || DEFAULT_QUEUE_PATH;
     const fullPath = resolveCsvPath(targetPath);
     try {
       const content = await readFile(fullPath, 'utf8');
@@ -278,7 +284,7 @@ export function createQueueWatcher({ projectRoot, assetDir, state, store, onSync
       try { activeWatcher.close(); } catch {}
       activeWatcher = null;
     }
-    const targetPath = filePath || state.queueSync.path || 'examples/launch-queue.csv';
+    const targetPath = filePath || state.queueSync.path || DEFAULT_QUEUE_PATH;
     const fullPath = resolveCsvPath(targetPath);
     try {
       activeWatcher = watch(fullPath, (eventType) => {
@@ -308,7 +314,7 @@ export function createQueueWatcher({ projectRoot, assetDir, state, store, onSync
     startWatch,
     status() {
       return {
-        path: state.queueSync?.path || 'examples/launch-queue.csv',
+        path: state.queueSync?.path || DEFAULT_QUEUE_PATH,
         lastSyncAt: state.queueSync?.lastSyncAt || null,
         error: state.queueSync?.error || null,
         count: state.queue?.length ?? 0,

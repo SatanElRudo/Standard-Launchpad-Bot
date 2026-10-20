@@ -516,7 +516,7 @@ async function updateSnipeWallets(country = 'us') {
           <input type="checkbox" class="auto-snipe-checkbox" data-wallet-id="${esc(w.id)}" ${checked ? 'checked' : ''}>
           <div>
             <strong>🔒 ${esc(w.label)}</strong>
-            <small>${esc(short(w.address))} · ETH: <strong>${esc(w.balanceEth)}</strong></small>
+            <small>${esc(short(w.address))} · ETH: <strong>${esc(w.balanceEth)}</strong> · SPCX: <strong>${esc(w.balanceSpcx || '0')}</strong></small>
           </div>
         </div>
         <div class="auto-snipe-pair-inputs">
@@ -1177,19 +1177,29 @@ function renderDashboard(state, feeData) {
   }
 
   let totalVaultFees = 0;
+  let totalVaultFeesEth = 0;
+  let totalVaultFeesSpcx = 0;
   let vaultWalletsWithFees = 0;
   let totalFeeItemsCount = 0;
 
   for (const w of Object.values(byWallet)) {
-    if (w.isVault && Number(w.totalBalanceEth) > 0) {
-      totalVaultFees += Number(w.totalBalanceEth);
-      vaultWalletsWithFees++;
-      totalFeeItemsCount += w.curves?.length || 0;
+    if (w.isVault) {
+      const ethVal = Number(w.totalBalanceEth) || 0;
+      const spcxVal = Number(w.totalBalanceSpcx) || 0;
+      if (ethVal > 0 || spcxVal > 0 || w.hasFees) {
+        totalVaultFeesEth += ethVal;
+        totalVaultFeesSpcx += spcxVal;
+        vaultWalletsWithFees++;
+        totalFeeItemsCount += w.curves?.length || 0;
+      }
     }
   }
 
   if ($('#dash-total-fees')) {
-    $('#dash-total-fees').textContent = `${totalVaultFees.toFixed(6).replace(/\.?0+$/, '') || '0'} SPCX`;
+    const feeTexts = [];
+    if (totalVaultFeesEth > 0) feeTexts.push(`${totalVaultFeesEth.toFixed(6).replace(/\.?0+$/, '')} ETH`);
+    if (totalVaultFeesSpcx > 0) feeTexts.push(`${totalVaultFeesSpcx.toFixed(4).replace(/\.?0+$/, '')} SPCX`);
+    $('#dash-total-fees').textContent = feeTexts.length > 0 ? feeTexts.join(' · ') : '0 ETH';
   }
   if ($('#dash-wallets-with-fees')) {
     $('#dash-wallets-with-fees').textContent = vaultWalletsWithFees;
@@ -1202,8 +1212,8 @@ function renderDashboard(state, feeData) {
     const dep = l.deployerPoints || 0;
     const buy = (Array.isArray(l.buyerPoints) ? l.buyerPoints : []).reduce((a, b) => a + (b.points || 0), 0);
     totalOwnPoints += (dep + buy);
-    const netEth = (typeof l.netPnlEth === 'number') ? l.netPnlEth : 0;
-    totalOnchainPnlUsd += (netEth * 2600);
+    const onchainUsd = (typeof l.onchainPnlUsd === 'number') ? l.onchainPnlUsd : (Number(l.netPnlEth || 0) * 2600);
+    totalOnchainPnlUsd += onchainUsd;
   }
   const totalPointsUsd = totalOwnPoints * effectivePointVal;
   const totalEffPnlUsd = totalOnchainPnlUsd + totalPointsUsd;
@@ -1236,7 +1246,7 @@ function renderDashboard(state, feeData) {
 
   // Section 1: Claimbare Gebühren pro Wallet
   const walletEntries = Object.values(byWallet);
-  const walletsWithFees = walletEntries.filter(w => Number(w.totalBalanceEth) > 0);
+  const walletsWithFees = walletEntries.filter(w => w.hasFees || Number(w.totalBalanceEth) > 0 || Number(w.totalBalanceSpcx) > 0);
 
   if (!walletsWithFees.length) {
     render('#dash-wallet-cards', '<div class="empty dash-empty-grid">Aktuell keine unbeanspruchten Creator-Gebühren vorhanden. Sobald auf den Bonding-Curves deiner Tokens gehandelt wird, sammeln sich die Gebühren hier automatisch an.</div>');
@@ -1255,7 +1265,7 @@ function renderDashboard(state, feeData) {
             </div>
             <div class="dash-fee-block">
               <small class="subtle dash-fee-label">OFFENE GEBÜHREN</small>
-              <div class="dash-fee-amount">${esc(w.totalBalanceEth)} ${esc(w.stockSymbol || 'SPCX')}</div>
+              <div class="dash-fee-amount">${esc(w.feeSummary || '0 ETH')}</div>
             </div>
             ${(w.totalDeployerPoints || w.totalBuyerPoints) ? `
               <div class="dash-points-summary-row" style="margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap;">
@@ -1264,7 +1274,7 @@ function renderDashboard(state, feeData) {
               </div>
             ` : ''}
             ${(() => {
-              const activeCurves = (w.curves || []).filter(c => Number(c.balanceEth) > 0);
+              const activeCurves = (w.curves || []).filter(c => Number(c.balanceFormatted || c.balanceEth) > 0);
               if (!activeCurves.length) return '';
               return `
                 <div class="dash-curves-box">
@@ -1272,7 +1282,7 @@ function renderDashboard(state, feeData) {
                   ${activeCurves.map(c => `
                     <div class="dash-curve-item">
                       <span class="dash-token-badge">🪙 ${esc(c.name || 'Token')} <span class="subtle">$${esc(c.symbol || '')}</span></span>
-                      <strong>${esc(c.balanceEth)} ${esc(c.stockSymbol || 'SPCX')}</strong>
+                      <strong>${esc(c.balanceFormatted || c.balanceEth)} ${esc(c.stockSymbol || 'ETH')}</strong>
                     </div>
                   `).join('')}
                 </div>
@@ -1300,9 +1310,10 @@ function renderDashboard(state, feeData) {
   } else {
     render('#dash-launches-list', launches.map(l => {
       const fee = claimableFeesMap[l.curve?.toLowerCase()];
-      const feeAmount = fee ? Number(fee.balanceEth) : 0;
-      const formattedFee = feeAmount > 0 ? feeAmount.toFixed(6).replace(/\.?0+$/, '') : '0';
-      const stockSym = fee?.stockSymbol || 'SPCX';
+      const feeSymbol = l.feeSymbol || fee?.stockSymbol || (l.country === 'us' ? 'SPCX' : 'ETH');
+      const feeDecimals = (feeSymbol === 'ETH') ? 6 : 4;
+      const feeAmount = fee ? Number(fee.balanceFormatted || fee.balanceEth) : (Number(l.feeAmount || l.feesStock || l.feesEth) || 0);
+      const formattedFee = feeAmount > 0 ? feeAmount.toFixed(feeDecimals).replace(/\.?0+$/, '') : '0';
       const hasFees = feeAmount > 0;
       const isMine = fee?.isMine || false;
 
@@ -1317,12 +1328,16 @@ function renderDashboard(state, feeData) {
       const launchFeeEth = Number(l.launchFeeEth || 0.0005);
       const snipeEth = Number(l.snipeEth || 0);
       const sellEth = Number(l.sellEth || 0);
-      const feesAccrued = feeAmount > 0 ? feeAmount : Number(l.feesEth || 0);
-      const netPnlEth = (typeof l.netPnlEth === 'number') ? l.netPnlEth : ((sellEth + feesAccrued) - (launchFeeEth + snipeEth));
-      const hasPnlData = Boolean(l.hasPnlData || snipeEth || sellEth);
-      const onchainPnlUsd = netPnlEth * 2600;
+      const feesAccrued = feeAmount > 0 ? feeAmount : Number(l.feesStock || l.feesEth || 0);
+      const onchainPnlUsd = (typeof l.onchainPnlUsd === 'number') ? l.onchainPnlUsd : ((sellEth + (feeSymbol === 'ETH' ? feesAccrued : 0)) - (launchFeeEth + snipeEth)) * 2600 + (feeSymbol !== 'ETH' ? feesAccrued : 0);
+      const netPnlEth = (typeof l.netPnlEth === 'number') ? l.netPnlEth : (onchainPnlUsd / 2600);
+      const hasPnlData = Boolean(l.hasPnlData || snipeEth || sellEth || l.snipeStock || l.sellStock);
       const punkteWertUsd = eigenePunkte * effectivePointVal;
       const effPnlUsd = onchainPnlUsd + punkteWertUsd;
+
+      const isSpcx = l.snipeCurrency === 'SPCX' || l.country === 'us';
+      const snipeLabel = (l.snipeStock > 0) ? `${l.snipeStock.toFixed(2)} SPCX` : (snipeEth > 0 ? `${snipeEth.toFixed(4)} ETH` : '0 ETH');
+      const sellLabel = (l.sellStock > 0) ? `${l.sellStock.toFixed(2)} SPCX` : (sellEth > 0 ? `${sellEth.toFixed(4)} ETH` : (snipeEth > 0 || l.snipeStock > 0 ? 'Moonbag' : '0 ETH'));
 
       return `
         <div class="item dash-launch-item">
@@ -1330,7 +1345,7 @@ function renderDashboard(state, feeData) {
             <div class="dash-token-row-header">
               <strong class="dash-token-title">${esc(l.name)}</strong>
               <span class="pill pill-mini">$${esc(l.symbol)}</span>
-              ${hasFees ? `<span class="pill pill-mini pill-active">💰 ${esc(formattedFee)} ${esc(stockSym)}</span>` : ''}
+              ${hasFees ? `<span class="pill pill-mini pill-active">💰 ${esc(formattedFee)} ${esc(feeSymbol)}</span>` : ''}
             </div>
 
             <!-- Punkte pro Launch -->
@@ -1345,14 +1360,14 @@ function renderDashboard(state, feeData) {
               <div class="dash-pnl-row">
                 <div>
                   <span class="subtle">Launch:</span> <strong>${(launchFeeEth).toFixed(4)} ETH</strong> · 
-                  <span class="subtle">Snipe:</span> <strong>${snipeEth > 0 ? `${snipeEth.toFixed(4)} ETH` : '0 ETH'}</strong> · 
-                  <span class="subtle">Erlös:</span> <strong>${sellEth > 0 ? `${sellEth.toFixed(4)} ETH` : (snipeEth > 0 ? 'Moonbag' : '0 ETH')}</strong> · 
-                  <span class="subtle">Fees:</span> <strong>+${feesAccrued.toFixed(6)} ETH</strong>
+                  <span class="subtle">Snipe:</span> <strong>${snipeLabel}</strong> · 
+                  <span class="subtle">Erlös:</span> <strong>${sellLabel}</strong> · 
+                  <span class="subtle">Fees:</span> <strong>+${feesAccrued.toFixed(feeDecimals)} ${esc(feeSymbol)}</strong>
                 </div>
                 <div>
                   <span class="subtle">On-Chain Net:</span>
-                  <strong class="${netPnlEth >= 0 ? 'dash-accent-text' : 'dash-danger-text'}" style="margin-left: 4px;">
-                    ${netPnlEth >= 0 ? '+' : ''}${netPnlEth.toFixed(5)} ETH (${netPnlEth >= 0 ? '+' : ''}${onchainPnlUsd.toFixed(2)} $)
+                  <strong class="${onchainPnlUsd >= 0 ? 'dash-accent-text' : 'dash-danger-text'}" style="margin-left: 4px;">
+                    ${onchainPnlUsd >= 0 ? '+' : ''}${onchainPnlUsd.toFixed(2)} $ (${netPnlEth >= 0 ? '+' : ''}${netPnlEth.toFixed(5)} ETH)
                   </strong>
                 </div>
               </div>
@@ -1672,7 +1687,7 @@ async function refresh() {
       render('#vault-wallets', vaultWallets.length ? vaultWallets.map(w => `
         <div class="item">
           <div>
-            <strong>🔒 ${esc(w.label)} <span class="subtle">(${esc(w.balanceEth)} ETH)</span></strong>
+            <strong>🔒 ${esc(w.label)} <span class="subtle">(${esc(w.balanceEth)} ETH · ${esc(w.balanceSpcx || '0')} SPCX)</span></strong>
             <small class="address">${esc(w.address)}<br>Erstellt: ${esc(date(w.createdAt))}</small>
           </div>
           <div class="item-actions">
@@ -1842,7 +1857,7 @@ async function refresh() {
           render('#auto-rotate-wallets-list', '<div class="empty">Noch keine Wallets im Tresor. Bitte zuerst unter „Wallets“ neue Wallets anlegen.</div>');
         } else {
           const currentVal = $('#auto-launcher-default-wallet')?.value || al.defaultWalletId;
-          render('#auto-launcher-default-wallet', '<option value="">Keine Standard-Wallet (CSV-Fallback)</option>' + vaultWallets.map(w => `<option value="${esc(w.id)}" ${w.id === currentVal ? 'selected' : ''}>${esc(w.label)} · ${short(w.address)} (${esc(w.balanceEth)} ETH)</option>`).join(''));
+          render('#auto-launcher-default-wallet', '<option value="">Keine Standard-Wallet (CSV-Fallback)</option>' + vaultWallets.map(w => `<option value="${esc(w.id)}" ${w.id === currentVal ? 'selected' : ''}>${esc(w.label)} · ${short(w.address)} (${esc(w.balanceEth)} ETH · ${esc(w.balanceSpcx || '0')} SPCX)</option>`).join(''));
 
           const savedRotateSet = new Set(al.rotationWalletIds || []);
           render('#auto-rotate-wallets-list', vaultWallets.map(w => {
@@ -1854,7 +1869,7 @@ async function refresh() {
                   <input type="checkbox" class="auto-rotate-checkbox" data-wallet-id="${esc(w.id)}" ${checked ? 'checked' : ''}>
                   <div>
                     <strong>🔒 ${esc(w.label)}</strong> <span class="next-pill-container">${isNext ? '<span class="pill pill-mini">Als Nächste an der Reihe ➔</span>' : ''}</span>
-                    <small>${esc(short(w.address))} · Guthaben: <strong>${esc(w.balanceEth)} ETH</strong></small>
+                    <small>${esc(short(w.address))} · Guthaben: <strong>${esc(w.balanceEth)} ETH</strong> · <strong>${esc(w.balanceSpcx || '0')} SPCX</strong></small>
                   </div>
                 </div>
               </div>
@@ -1898,7 +1913,7 @@ async function refresh() {
     try {
       const syncInfo = await api('/queue/sync');
       if (syncInfo && document.activeElement !== $('#queue-file-path')) {
-        if ($('#queue-file-path')) $('#queue-file-path').value = syncInfo.path || 'examples/launch-queue.csv';
+        if ($('#queue-file-path')) $('#queue-file-path').value = syncInfo.path || 'data/launch-queue.csv';
         if ($('#queue-sync-badge')) {
           $('#queue-sync-badge').textContent = syncInfo.error ? 'Fehler' : 'Live synchronisiert';
           $('#queue-sync-badge').className = `pill ${syncInfo.error ? 'offline' : 'pill-active'}`;
@@ -1939,7 +1954,7 @@ async function refresh() {
       const selected = $('#wallet-choice').value;
       let optHtml = '<option value="">Adresse eingeben oder Wallet verbinden</option>';
       if (vaultWallets.length) {
-        optHtml += '<optgroup label="Tresor-Wallets (Direktsignatur)">' + vaultWallets.map(w => `<option value="${esc(w.address)}">🔒 ${esc(w.label)} · ${short(w.address)} (${esc(w.balanceEth)} ETH)</option>`).join('') + '</optgroup>';
+        optHtml += '<optgroup label="Tresor-Wallets (Direktsignatur)">' + vaultWallets.map(w => `<option value="${esc(w.address)}">🔒 ${esc(w.label)} · ${short(w.address)} (${esc(w.balanceEth)} ETH · ${esc(w.balanceSpcx || '0')} SPCX)</option>`).join('') + '</optgroup>';
       }
       if (state.wallets.length) {
         optHtml += '<optgroup label="Beobachtungs-Adressen (Browser-Signatur)">' + state.wallets.map(w => `<option value="${esc(w.address)}">${esc(w.label)} · ${short(w.address)}</option>`).join('') + '</optgroup>';

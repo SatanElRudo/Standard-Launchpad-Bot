@@ -319,6 +319,28 @@ export async function executeMultiSnipe({
   return results;
 }
 
+export function extractPayoutFromReceipt(receipt, userAddress) {
+  if (!receipt?.logs) return '0';
+  const userTopic = (userAddress || '').toLowerCase().replace('0x', '').padStart(64, '0');
+  // 1. Direct transfer to user (e.g. SPCX, CRCL, KR, ERC20 tokens)
+  const transferToUser = receipt.logs.find(l =>
+    l.topics?.[0] === '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef' &&
+    l.topics?.[2]?.toLowerCase().includes(userTopic)
+  );
+  if (transferToUser && transferToUser.data && transferToUser.data !== '0x') {
+    return formatEther(BigInt(transferToUser.data));
+  }
+  // 2. Native ETH unwrap transfer from router to 0x0
+  const unwrapLog = receipt.logs.find(l =>
+    l.topics?.[0] === '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef' &&
+    l.topics?.[2]?.endsWith('0000000000000000000000000000000000000000')
+  );
+  if (unwrapLog && unwrapLog.data && unwrapLog.data !== '0x') {
+    return formatEther(BigInt(unwrapLog.data));
+  }
+  return '0';
+}
+
 export async function executeSnipeSell({
   curve,
   token,
@@ -441,6 +463,9 @@ export async function executeSnipeSell({
     gas: 350_000n,
   });
 
+  let payoutReceived = '0';
+  const stockSymbol = deployment.stocks[country]?.symbol || (isNativeEth ? 'ETH' : 'SPCX');
+
   if (customClient.waitForTransactionReceipt) {
     const receipt = await customClient.waitForTransactionReceipt({ hash });
     if (receipt.status !== 'success') {
@@ -453,6 +478,7 @@ export async function executeSnipeSell({
         error: 'Verkaufs-Transaktion on-chain fehlgeschlagen (reverted).',
       };
     }
+    payoutReceived = extractPayoutFromReceipt(receipt, account.address);
   }
 
   return {
@@ -461,6 +487,9 @@ export async function executeSnipeSell({
     address: account.address,
     hash,
     tokensSold: formatEther(tokenBal),
+    payoutAmount: payoutReceived,
+    ethReceived: payoutReceived,
+    currency: stockSymbol,
     status: 'success',
   };
 }

@@ -2,6 +2,8 @@ assets/*.jpg
 node_modules/
 dist/
 data/
+data/*
+*.backup.csv
 test-results/
 research/*.js
 research/*.html

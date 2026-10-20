@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../server/app.mjs';
@@ -86,7 +86,9 @@ test('Vault and Auto-Launcher API endpoints', async () => {
   const inspectLaunchFn = async hash => ({ status: 'success', hash, token: '0x' + 'b'.repeat(40), name: 'AutoToken', symbol: 'ATK', confirmedAt: Date.now() });
   const balanceFn = async addresses => Object.fromEntries(addresses.map(a => [a.toLowerCase(), '2.5']));
 
-  const app = createApp({ dataDir: directory, market, interval: 999999, executeLaunch, inspectLaunchFn, balanceFn });
+  const assetsDir = join(directory, 'assets');
+  await mkdir(assetsDir, { recursive: true });
+  const app = createApp({ dataDir: directory, assetDir: assetsDir, market, interval: 999999, executeLaunch, inspectLaunchFn, balanceFn });
   await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${app.server.address().port}`;
   const request = (path, body, method = 'POST') => fetch(base + path, { method, headers: { Origin: base, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });

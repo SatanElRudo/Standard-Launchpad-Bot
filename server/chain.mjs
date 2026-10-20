@@ -276,14 +276,22 @@ export async function getClaimableFees(curves = [], customClient = null) {
         pc.readContract({ address: curve, abi: curveAbi, functionName: 'token' }).catch(() => ''),
       ]);
 
-      const pairingAddress = poolKey?.[0]?.toLowerCase() || '';
+      const p0 = poolKey?.[0]?.toLowerCase() || '';
+      const p1 = poolKey?.[1]?.toLowerCase() || '';
       let stockSymbol = 'SPCX';
-      for (const stock of Object.values(deployment.stocks)) {
-        if (stock.address.toLowerCase() === pairingAddress) {
-          stockSymbol = stock.symbol;
+      let isNativeEth = false;
+      let pairingAddress = p0;
+
+      for (const [k, stock] of Object.entries(deployment.stocks)) {
+        if (stock.address.toLowerCase() === p0 || stock.address.toLowerCase() === p1) {
+          pairingAddress = stock.address;
+          isNativeEth = (k === 'eth' || Boolean(stock.native));
+          stockSymbol = isNativeEth ? 'ETH' : stock.symbol;
           break;
         }
       }
+
+      const formattedBal = formatEther(bal);
 
       return {
         curve,
@@ -291,12 +299,14 @@ export async function getClaimableFees(curves = [], customClient = null) {
         token: tokenAddr,
         pairingAddress,
         stockSymbol,
+        isNativeEth,
         feeRecipient: recipient,
         balanceWei: bal.toString(),
-        balanceEth: formatEther(bal),
+        balanceFormatted: formattedBal,
+        balanceEth: formattedBal,
       };
     } catch {
-      return { curve, escrow, token: '', pairingAddress: '', stockSymbol: 'SPCX', feeRecipient: '', balanceWei: '0', balanceEth: '0' };
+      return { curve, escrow, token: '', pairingAddress: '', stockSymbol: 'SPCX', isNativeEth: false, feeRecipient: '', balanceWei: '0', balanceFormatted: '0', balanceEth: '0' };
     }
   }));
 }
