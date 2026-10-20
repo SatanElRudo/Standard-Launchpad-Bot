@@ -90,9 +90,12 @@ async function busy(button, action) {
   finally { button.disabled = previous; }
 }
 
-function navigate(page) {
-  document.querySelectorAll('.page').forEach(el => el.hidden = el.id !== `page-${page}`);
-  document.querySelectorAll('.nav').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+const VALID_PAGES = ['dashboard', 'launch', 'queue', 'monitor', 'wallets', 'alerts'];
+
+function navigate(page, updateHistory = true) {
+  const target = VALID_PAGES.includes(page) ? page : 'launch';
+  document.querySelectorAll('.page').forEach(el => el.hidden = el.id !== `page-${target}`);
+  document.querySelectorAll('.nav').forEach(el => el.classList.toggle('active', el.dataset.page === target));
   $('#page-label').textContent = {
     dashboard: 'Dashboard & Gebühren',
     launch: 'Token launchen',
@@ -100,12 +103,35 @@ function navigate(page) {
     monitor: 'Monitoring',
     wallets: 'Wallets & Tresor',
     alerts: 'Alerts'
-  }[page] || 'Launch Console';
-  if (page === 'queue') {
+  }[target] || 'Launch Console';
+
+  try {
+    localStorage.setItem('standard_active_page', target);
+    if (updateHistory && window.location.hash !== `#${target}`) {
+      window.history.replaceState(null, '', `#${target}`);
+    }
+  } catch {}
+
+  if (target === 'queue') {
     void updateSnipeWallets(state.queue?.[0]?.country || 'us');
   }
 }
+
+function getInitialPage() {
+  const hashPage = window.location.hash.replace(/^#/, '').toLowerCase();
+  if (VALID_PAGES.includes(hashPage)) return hashPage;
+  try {
+    const saved = localStorage.getItem('standard_active_page');
+    if (VALID_PAGES.includes(saved)) return saved;
+  } catch {}
+  return 'dashboard';
+}
+
 document.querySelectorAll('.nav').forEach(button => button.onclick = () => navigate(button.dataset.page));
+window.addEventListener('hashchange', () => {
+  const hashPage = window.location.hash.replace(/^#/, '').toLowerCase();
+  if (VALID_PAGES.includes(hashPage)) navigate(hashPage, false);
+});
 
 function addProvider(info, provider) {
   if (providers.some(p => p.provider === provider)) return;
@@ -2172,6 +2198,7 @@ if ($('#close-quick-unlock-btn')) {
   };
 }
 
+navigate(getInitialPage(), false);
 await refresh(); void terms();
 if (selectedProvider()) { walletSession.select(selectedProvider()); void walletSession.connect(true).catch(() => {}); }
 if (pendingHash) { show(`Gesendeter Launch ${pendingHash} wird weiter geprüft.`); void checkReceipt(); }
