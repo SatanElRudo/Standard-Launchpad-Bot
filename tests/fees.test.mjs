@@ -179,3 +179,44 @@ test('claim fees executes claim and respects swapToEth parameter', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('settings API persists point value settings and returns pilot stats in fees API', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'settings-test-'));
+  const app = createApp({ dataDir: dir });
+  await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  const req = (path, body, method = 'POST') => fetch(base + path, {
+    method,
+    headers: { Origin: base, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  try {
+    // 1. GET /api/settings
+    const getRes = await req('/api/settings', null, 'GET');
+    assert.equal(getRes.status, 200);
+    const getData = await getRes.json();
+    assert.ok(getData.settings);
+    assert.ok(getData.pilotStats);
+    assert.equal(typeof getData.pilotStats.poolPointValueUsd, 'number');
+
+    // 2. POST /api/settings update mode to manual with custom value
+    const postRes = await req('/api/settings', { pointValueMode: 'manual', customPointValueUsd: 0.0055 });
+    assert.equal(postRes.status, 200);
+    const postData = await postRes.json();
+    assert.equal(postData.settings.pointValueMode, 'manual');
+    assert.equal(postData.settings.customPointValueUsd, 0.0055);
+
+    // 3. GET /api/fees includes settings and pilotStats
+    const feesRes = await req('/api/fees', null, 'GET');
+    assert.equal(feesRes.status, 200);
+    const feesData = await feesRes.json();
+    assert.equal(feesData.settings.pointValueMode, 'manual');
+    assert.equal(feesData.settings.customPointValueUsd, 0.0055);
+    assert.ok(feesData.pilotStats);
+    assert.ok(feesData.pilotStats.totalPoints > 0);
+  } finally {
+    await app.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});

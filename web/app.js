@@ -1028,12 +1028,104 @@ function loadDraft(draft) {
   preview(); navigate('launch');
 }
 
+let currentPointSettings = {
+  mode: 'auto',
+  customVal: 0.00345,
+  liveVal: 0.00345,
+};
+let lastState = null;
+let lastFeeData = null;
+let pointControlsInitialized = false;
+
 function renderDashboard(state, feeData) {
   const launches = (feeData && Array.isArray(feeData.launches) && feeData.launches.length) ? feeData.launches : (state.launches || []);
   const byWallet = feeData?.byWallet || {};
 
   if ($('#dash-total-launches')) $('#dash-total-launches').textContent = launches.length;
   if ($('#dash-launch-count')) $('#dash-launch-count').textContent = `${launches.length} Token${launches.length === 1 ? '' : 's'}`;
+
+  const pilotStats = feeData?.pilotStats || {};
+  const serverSettings = feeData?.settings || {};
+  const poolPointValue = Number(pilotStats.poolPointValueUsd || 0.00345);
+  currentPointSettings.liveVal = poolPointValue;
+  if (serverSettings.pointValueMode) {
+    currentPointSettings.mode = serverSettings.pointValueMode;
+  }
+  if (typeof serverSettings.customPointValueUsd === 'number') {
+    currentPointSettings.customVal = serverSettings.customPointValueUsd;
+  }
+
+  const effectivePointVal = currentPointSettings.mode === 'manual'
+    ? (Number(currentPointSettings.customVal) || poolPointValue)
+    : poolPointValue;
+
+  const autoRadio = $('#dash-point-mode-auto');
+  const manualRadio = $('#dash-point-mode-manual');
+  const valInput = $('#dash-point-value-input');
+  const poolStatusText = $('#dash-pool-status-text');
+
+  if (autoRadio && manualRadio && valInput) {
+    if (document.activeElement !== valInput) {
+      if (currentPointSettings.mode === 'auto') {
+        autoRadio.checked = true;
+        manualRadio.checked = false;
+        valInput.value = poolPointValue.toFixed(5);
+        valInput.readOnly = true;
+        valInput.style.opacity = '0.7';
+      } else {
+        autoRadio.checked = false;
+        manualRadio.checked = true;
+        valInput.value = Number(currentPointSettings.customVal).toFixed(5);
+        valInput.readOnly = false;
+        valInput.style.opacity = '1';
+      }
+    }
+  }
+
+  if (poolStatusText) {
+    const totalPoolUsd = Number(pilotStats.feesUsd) || 150056;
+    const totalPoolPts = Number(pilotStats.totalPoints) || 43468000;
+    poolStatusText.innerHTML = `Live aus Standard Reserve Pool: <strong>${totalPoolUsd.toLocaleString('de-DE', {maximumFractionDigits:0})} $</strong> Pool / <strong>${(totalPoolPts / 1e6).toFixed(1)}M</strong> Pkt = <strong class="dash-accent-text">~${poolPointValue.toFixed(5)} $/Pkt</strong>`;
+  }
+
+  if (!pointControlsInitialized && autoRadio && manualRadio && valInput) {
+    pointControlsInitialized = true;
+    autoRadio.onchange = async () => {
+      if (autoRadio.checked) {
+        currentPointSettings.mode = 'auto';
+        valInput.value = currentPointSettings.liveVal.toFixed(5);
+        valInput.readOnly = true;
+        valInput.style.opacity = '0.7';
+        await post('/settings', { pointValueMode: 'auto' }).catch(() => {});
+        if (lastFeeData && lastState) renderDashboard(lastState, lastFeeData);
+      }
+    };
+    manualRadio.onchange = async () => {
+      if (manualRadio.checked) {
+        currentPointSettings.mode = 'manual';
+        valInput.readOnly = false;
+        valInput.style.opacity = '1';
+        valInput.focus();
+        await post('/settings', { pointValueMode: 'manual', customPointValueUsd: Number(valInput.value) || 0.00345 }).catch(() => {});
+        if (lastFeeData && lastState) renderDashboard(lastState, lastFeeData);
+      }
+    };
+    let saveTimer = null;
+    valInput.oninput = () => {
+      const val = Number(valInput.value) || 0;
+      currentPointSettings.customVal = val;
+      currentPointSettings.mode = 'manual';
+      manualRadio.checked = true;
+      autoRadio.checked = false;
+      valInput.readOnly = false;
+      valInput.style.opacity = '1';
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(async () => {
+        await post('/settings', { pointValueMode: 'manual', customPointValueUsd: val }).catch(() => {});
+      }, 500);
+      if (lastFeeData && lastState) renderDashboard(lastState, lastFeeData);
+    };
+  }
 
   let totalVaultFees = 0;
   let vaultWalletsWithFees = 0;
@@ -1052,6 +1144,33 @@ function renderDashboard(state, feeData) {
   }
   if ($('#dash-wallets-with-fees')) {
     $('#dash-wallets-with-fees').textContent = vaultWalletsWithFees;
+  }
+
+  // Summary Metrics: Eigene Punkte & Effektives PnL
+  let totalOwnPoints = 0;
+  let totalOnchainPnlUsd = 0;
+  for (const l of launches) {
+    const dep = l.deployerPoints || 0;
+    const buy = (Array.isArray(l.buyerPoints) ? l.buyerPoints : []).reduce((a, b) => a + (b.points || 0), 0);
+    totalOwnPoints += (dep + buy);
+    const netEth = (typeof l.netPnlEth === 'number') ? l.netPnlEth : 0;
+    totalOnchainPnlUsd += (netEth * 2600);
+  }
+  const totalPointsUsd = totalOwnPoints * effectivePointVal;
+  const totalEffPnlUsd = totalOnchainPnlUsd + totalPointsUsd;
+
+  if ($('#dash-total-own-points')) {
+    $('#dash-total-own-points').textContent = `${totalOwnPoints.toLocaleString('de-DE')} Pkt`;
+  }
+  if ($('#dash-total-points-usd')) {
+    $('#dash-total-points-usd').textContent = `~${totalPointsUsd.toFixed(2)} $ geschätzt`;
+  }
+  if ($('#dash-total-effective-pnl')) {
+    $('#dash-total-effective-pnl').textContent = `${totalEffPnlUsd >= 0 ? '+' : ''}${totalEffPnlUsd.toFixed(2)} $`;
+    $('#dash-total-effective-pnl').className = totalEffPnlUsd >= 0 ? 'dash-accent-text' : 'dash-danger-text';
+  }
+  if ($('#dash-total-onchain-pnl')) {
+    $('#dash-total-onchain-pnl').textContent = `On-Chain: ${totalOnchainPnlUsd >= 0 ? '+' : ''}${totalOnchainPnlUsd.toFixed(2)} $`;
   }
 
   const feeBadge = $('#dashboard-fee-count');
@@ -1091,8 +1210,8 @@ function renderDashboard(state, feeData) {
             </div>
             ${(w.totalDeployerPoints || w.totalBuyerPoints) ? `
               <div class="dash-points-summary-row" style="margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap;">
-                ${w.totalDeployerPoints ? `<span class="pill pill-mini pill-highlight" title="Verifizierte Deployer-Punkte auf Standard Reserve">👑 ${esc(w.totalDeployerPoints.toLocaleString('de-DE'))} Deployer-Pkt</span>` : ''}
-                ${w.totalBuyerPoints ? `<span class="pill pill-mini pill-active" title="Echte Trading-Punkte auf Standard Reserve">🛒 ${esc(w.totalBuyerPoints.toLocaleString('de-DE'))} Buyer-Pkt</span>` : ''}
+                ${w.totalDeployerPoints ? `<span class="pill pill-mini pill-highlight" title="Verifizierte Deployer-Punkte auf Standard Reserve (Creator)">👑 ${esc(w.totalDeployerPoints.toLocaleString('de-DE'))} Deployer-Pkt</span>` : ''}
+                ${w.totalBuyerPoints ? `<span class="pill pill-mini pill-active" title="Echte Trading-Punkte auf Standard Reserve (Käufe)">🛒 ${esc(w.totalBuyerPoints.toLocaleString('de-DE'))} Buyer-Pkt</span>` : ''}
               </div>
             ` : ''}
             ${(() => {
@@ -1143,7 +1262,7 @@ function renderDashboard(state, feeData) {
       const pltPoints = l.pilotPoints || 0;
       const buyerList = Array.isArray(l.buyerPoints) ? l.buyerPoints : [];
       const buyPoints = buyerList.reduce((acc, b) => acc + (b.points || 0), 0);
-      const totalLaunchPoints = Number((depPoints + pltPoints + buyPoints).toFixed(2));
+      const eigenePunkte = Number((depPoints + buyPoints).toFixed(2));
 
       // PnL calculation per launch
       const launchFeeEth = Number(l.launchFeeEth || 0.0005);
@@ -1152,6 +1271,9 @@ function renderDashboard(state, feeData) {
       const feesAccrued = feeAmount > 0 ? feeAmount : Number(l.feesEth || 0);
       const netPnlEth = (typeof l.netPnlEth === 'number') ? l.netPnlEth : ((sellEth + feesAccrued) - (launchFeeEth + snipeEth));
       const hasPnlData = Boolean(l.hasPnlData || snipeEth || sellEth);
+      const onchainPnlUsd = netPnlEth * 2600;
+      const punkteWertUsd = eigenePunkte * effectivePointVal;
+      const effPnlUsd = onchainPnlUsd + punkteWertUsd;
 
       return `
         <div class="item dash-launch-item">
@@ -1164,29 +1286,76 @@ function renderDashboard(state, feeData) {
 
             <!-- Punkte pro Launch -->
             <div class="dash-points-row">
-              <span class="pill pill-mini pill-highlight" title="Verifizierte Deployer-Punkte auf Standard Reserve">👑 Deployer: ${esc(depPoints.toLocaleString('de-DE'))} Pkt</span>
-              <span class="pill pill-mini" title="Pilot-Punkte des Tokens">🚀 Token: ${esc(pltPoints.toLocaleString('de-DE'))} Pkt</span>
+              <span class="pill pill-mini pill-highlight" title="Verifizierte Deployer-Punkte auf Standard Reserve (Gehört deiner Deployer-Wallet)">👑 Deployer: ${esc(depPoints.toLocaleString('de-DE'))} Pkt</span>
+              <span class="pill pill-mini" title="Token-Pilot Volumen-Punkte auf Standard Reserve (Gehört dem Token-Pool, nicht direkt deiner Wallet)">🚀 Token-Volumen: ${esc(pltPoints.toLocaleString('de-DE'))} Pkt</span>
               ${buyerList.map(b => `<span class="pill pill-mini pill-active" title="${esc(b.label)} (${esc(short(b.wallet))}): $${b.usdVolume} Handelsvolumen">🛒 ${esc(b.label)}: ${esc(b.points.toLocaleString('de-DE'))} Pkt</span>`).join('')}
-              <span class="pill pill-mini pill-button" style="font-weight: 700; border-color: var(--accent);" title="Gesamtpunkte für diesen Launch">⭐ Gesamt: ${esc(totalLaunchPoints.toLocaleString('de-DE'))} Pkt</span>
+              <span class="pill pill-mini pill-button" style="font-weight: 700; border-color: var(--accent);" title="Summe deiner persönlichen Punkte (Deployer + Buyer)">⭐ Eigene Punkte: ${esc(eigenePunkte.toLocaleString('de-DE'))} Pkt</span>
             </div>
 
             <!-- PnL Auswertung pro Launch -->
             ${hasPnlData ? `
               <div class="dash-pnl-box">
-                <div>
-                  <span class="subtle">Launch-Kosten:</span> <strong>${(launchFeeEth).toFixed(4)} ETH</strong> · 
-                  <span class="subtle">Snipe-Kauf:</span> <strong>${snipeEth.toFixed(4)} ETH</strong> · 
-                  <span class="subtle">Verkaufserlös:</span> <strong>${sellEth > 0 ? `${sellEth.toFixed(4)} ETH` : 'Noch im Moonbag'}</strong> · 
-                  <span class="subtle">Gebühren:</span> <strong>+${feesAccrued.toFixed(6)} ETH</strong>
+                <div class="dash-pnl-row">
+                  <div>
+                    <span class="subtle">Launch:</span> <strong>${(launchFeeEth).toFixed(4)} ETH</strong> · 
+                    <span class="subtle">Snipe:</span> <strong>${snipeEth.toFixed(4)} ETH</strong> · 
+                    <span class="subtle">Erlös:</span> <strong>${sellEth > 0 ? `${sellEth.toFixed(4)} ETH` : 'Moonbag'}</strong> · 
+                    <span class="subtle">Fees:</span> <strong>+${feesAccrued.toFixed(6)} ETH</strong>
+                  </div>
+                  <div>
+                    <span class="subtle">On-Chain Net:</span>
+                    <strong class="${netPnlEth >= 0 ? 'dash-accent-text' : 'dash-danger-text'}" style="margin-left: 4px;">
+                      ${netPnlEth >= 0 ? '+' : ''}${netPnlEth.toFixed(5)} ETH (${netPnlEth >= 0 ? '+' : ''}${onchainPnlUsd.toFixed(2)} $)
+                    </strong>
+                  </div>
                 </div>
-                <div>
-                  <span class="subtle">Net PnL:</span>
-                  <strong class="${netPnlEth >= 0 ? 'dash-accent-text' : 'dash-danger-text'}" style="font-size: 13px; margin-left: 4px;">
-                    ${netPnlEth >= 0 ? '+' : ''}${netPnlEth.toFixed(5)} ETH (${netPnlEth >= 0 ? '+' : ''}${(netPnlEth * 2600).toFixed(2)} $)
-                  </strong>
+                <div class="dash-pnl-effective-row">
+                  <div>
+                    <span class="subtle">Punkte-Wert (${effectivePointVal.toFixed(5)} $/Pkt):</span>
+                    <strong class="dash-accent-text" style="margin-left: 4px;">+${punkteWertUsd.toFixed(2)} $</strong>
+                    <span class="subtle">(${eigenePunkte.toLocaleString('de-DE')} eigene Pkt)</span>
+                  </div>
+                  <div>
+                    <span class="subtle">Effektives PnL (inkl. Punkte):</span>
+                    <strong class="${effPnlUsd >= 0 ? 'dash-accent-text' : 'dash-danger-text'}" style="font-size: 13px; margin-left: 4px;">
+                      ${effPnlUsd >= 0 ? '+' : ''}${effPnlUsd.toFixed(2)} $
+                    </strong>
+                  </div>
                 </div>
               </div>
             ` : ''}
+
+            <small class="dash-contracts-line">
+              Token: <a class="text-link" href="${state.deployment.explorer}/address/${esc(l.token)}" target="_blank" rel="noopener noreferrer">${esc(l.token)} ↗</a>
+              &nbsp;·&nbsp; Curve: <a class="text-link" href="${state.deployment.explorer}/address/${esc(l.curve)}" target="_blank" rel="noopener noreferrer">${esc(short(l.curve))} ↗</a>
+              &nbsp;·&nbsp; Deployer: ${esc(short(l.wallet || ''))}
+            </small>
+            ${l.confirmedAt ? `<small class="subtle dash-confirmed-line">Gelauncht am: ${date(l.confirmedAt)}</small>` : ''}
+          </div>
+          <div class="item-actions dash-item-actions">
+            ${(hasFees && isMine) ? `
+              <button type="button" class="button mini primary" data-action="claim-fees" data-curve="${esc(l.curve)}">
+                Gebühr claimen ➔
+              </button>
+            ` : ''}
+            <button type="button" class="button mini secondary" data-action="monitor-launch" data-id="${esc(l.hash)}">
+              Monitoring anlegen ↗
+            </button>
+            <a class="button mini secondary" href="${state.deployment.explorer}/tx/${esc(l.hash)}" target="_blank" rel="noopener noreferrer">
+              TX ↗
+            </a>
+            <a class="button mini secondary" href="https://www.standardreserve.xyz/token/${esc(l.token)}" target="_blank" rel="noopener noreferrer">
+              Standard Reserve ↗
+            </a>
+            <button type="button" class="button mini secondary danger-hover" data-action="delete-launch" data-hash="${esc(l.hash)}" title="Diesen Launch aus der Liste entfernen">
+              ✕ Entfernen
+            </button>
+          </div>
+        </div>
+      `;
+    }).join(''));
+  }
+}
 
             <small class="dash-contracts-line">
               Token: <a class="text-link" href="${state.deployment.explorer}/address/${esc(l.token)}" target="_blank" rel="noopener noreferrer">${esc(l.token)} ↗</a>
@@ -1780,6 +1949,8 @@ async function refresh() {
       claimableFeesMap = {};
     }
 
+    lastState = state;
+    lastFeeData = feeData;
     renderDashboard(state, feeData);
 
     render('#monitors', state.monitors.length ? state.monitors.map(m => {

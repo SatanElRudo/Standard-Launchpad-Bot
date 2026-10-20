@@ -29,6 +29,32 @@
           <span class="step-badge">◈ <span>/ DASHBOARD</span></span>
         </div>
 
+        <div class="dash-points-config-bar panel compact">
+          <div class="dash-points-config-info">
+            <span class="dash-config-icon">🎯</span>
+            <div>
+              <strong>Punkte-Bewertung für PnL</strong>
+              <div class="subtle" id="dash-pool-status-text">Live aus Standard Reserve Reward-Pool (~0.00345 $/Pkt)</div>
+            </div>
+          </div>
+          <div class="dash-points-config-actions">
+            <div class="dash-radio-toggle">
+              <label class="dash-radio-item">
+                <input type="radio" name="dash-point-mode" value="auto" checked id="dash-point-mode-auto">
+                <span>Auto (Live-Pool)</span>
+              </label>
+              <label class="dash-radio-item">
+                <input type="radio" name="dash-point-mode" value="manual" id="dash-point-mode-manual">
+                <span>Manuell</span>
+              </label>
+            </div>
+            <div class="dash-point-input-wrap">
+              <input type="number" id="dash-point-value-input" step="0.0001" min="0" value="0.00345" aria-label="Punktewert in Dollar">
+              <span class="dash-unit-label">$/Punkt</span>
+            </div>
+          </div>
+        </div>
+
         <div class="metrics dash-metrics">
           <div class="panel compact">
             <small>GELAUNCHTE TOKENS</small>
@@ -41,9 +67,14 @@
             <span class="subtle">Bereit zur Abholung</span>
           </div>
           <div class="panel compact">
-            <small>WALLETS MIT GEBÜHREN</small>
-            <strong id="dash-wallets-with-fees">0</strong>
-            <span class="subtle">Im Tresor hinterlegt</span>
+            <small>GESAMTE EIGENE PUNKTE</small>
+            <strong id="dash-total-own-points" class="dash-accent-text">0 Pkt</strong>
+            <span id="dash-total-points-usd" class="subtle">~0.00 $ geschätzt</span>
+          </div>
+          <div class="panel compact">
+            <small>EFFEKTIVES GESAMT-PNL</small>
+            <strong id="dash-total-effective-pnl">0.00 $</strong>
+            <span id="dash-total-onchain-pnl" class="subtle">On-Chain: 0.00 $</span>
           </div>
         </div>
 

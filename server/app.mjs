@@ -66,6 +66,34 @@ async function getLiveTokenPoints(tokenAddr, vaultMap) {
   }
 }
 
+let pilotPoolCache = { at: 0, data: null };
+async function getLivePilotPoolStats() {
+  if (pilotPoolCache.data && Date.now() - pilotPoolCache.at < 60_000) {
+    return pilotPoolCache.data;
+  }
+  try {
+    const [summaryRes, poolRes] = await Promise.all([
+      fetch('https://markets.standardreserve.xyz/v1/pilot/summary').then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch('https://markets.standardreserve.xyz/v1/pilot/pool').then(r => r.ok ? r.json() : null).catch(() => null),
+    ]);
+
+    const totalPoints = Number(summaryRes?.summary?.totalPoints || summaryRes?.totalPoints || 0);
+    const feesUsd = Number(poolRes?.pool?.feesUsd || poolRes?.feesUsd || 0);
+    const poolPointValueUsd = (totalPoints > 0 && feesUsd > 0) ? Number((feesUsd / totalPoints).toFixed(6)) : 0.00345;
+
+    const stats = {
+      totalPoints,
+      feesUsd,
+      poolPointValueUsd,
+      updatedAt: Date.now(),
+    };
+    pilotPoolCache = { at: Date.now(), data: stats };
+    return stats;
+  } catch {
+    return pilotPoolCache.data || { totalPoints: 43468000, feesUsd: 150000, poolPointValueUsd: 0.00345, updatedAt: 0 };
+  }
+}
+
 export function createApp({
   dataDir = resolve('data'),
   assetDir = resolve('assets'),
@@ -481,11 +509,30 @@ export function createApp({
           };
         }));
 
+        const pilotStats = await getLivePilotPoolStats();
         return send(200, {
           byCurve,
           byWallet,
           launches: enrichedLaunches,
+          pilotStats,
+          settings: state.settings || { pointValueMode: 'auto', customPointValueUsd: 0.00345 },
         });
+      }
+      if (req.method === 'GET' && path === '/api/settings') {
+        const pilotStats = await getLivePilotPoolStats();
+        return send(200, {
+          settings: state.settings || { pointValueMode: 'auto', customPointValueUsd: 0.00345 },
+          pilotStats,
+        });
+      }
+      if (req.method === 'POST' && path === '/api/settings') {
+        const input = await body(req);
+        state.settings = {
+          ...(state.settings || { pointValueMode: 'auto', customPointValueUsd: 0.00345 }),
+          ...input,
+        };
+        store.save();
+        return send(200, { success: true, settings: state.settings });
       }
       if (req.method === 'POST' && path === '/api/fees/claim') {
         assert(vault.isUnlocked(), 'Tresor ist gesperrt.');
