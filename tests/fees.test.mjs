@@ -76,6 +76,17 @@ test('fees API aggregates claimable fees by curve and by wallet', async () => {
     assert.ok(data.byWallet[dummyWallet]);
     assert.equal(data.byWallet[dummyWallet].curves.length, 2);
     assert.equal(data.byWallet[dummyWallet].totalBalanceEth, '0.02');
+
+    // Test deleting single launch
+    const delRes1 = await req('/api/launches/0x123', null, 'DELETE');
+    assert.equal(delRes1.status, 200);
+    assert.equal(app.state.launches.length, 1);
+    assert.equal(app.state.launches[0].hash, '0x456');
+
+    // Test clearing all launches
+    const delAllRes = await req('/api/launches', null, 'DELETE');
+    assert.equal(delAllRes.status, 200);
+    assert.equal(app.state.launches.length, 0);
   } finally {
     await app.close();
     await rm(dir, { recursive: true, force: true });

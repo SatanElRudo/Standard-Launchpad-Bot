@@ -552,6 +552,19 @@ export function createApp({
         for (const alert of state.alerts) alert.read = true;
         store.save(); return send(200, { ok: true });
       }
+      if (req.method === 'DELETE' && path === '/api/launches') {
+        state.launches = [];
+        store.save();
+        return send(200, { ok: true, cleared: true });
+      }
+      if (req.method === 'DELETE' && /^\/api\/launches\/[^/]+$/.test(path)) {
+        const hash = path.split('/')[3].toLowerCase();
+        const index = (state.launches || []).findIndex(l => (l.hash || '').toLowerCase() === hash || (l.id || '').toLowerCase() === hash);
+        assert(index >= 0, 'Launch nicht gefunden.');
+        state.launches.splice(index, 1);
+        store.save();
+        return send(200, { ok: true });
+      }
       if (req.method === 'DELETE' && /^\/api\/(wallets|drafts|monitors|queue)\/[^/]+$/.test(path)) {
         const [, , collection, id] = path.split('/');
         const item = state[collection].findIndex(x => x.id === id); assert(item >= 0, 'Eintrag nicht gefunden.');

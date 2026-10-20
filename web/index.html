@@ -16,7 +16,7 @@
     <div class="side-bottom"><span class="status-dot"></span> Robinhood Chain<small>Chain ID 4663 · Mainnet</small><a href="https://www.standardreserve.xyz/liquidity/" target="_blank" rel="noopener noreferrer">Standard Reserve öffnen ↗</a></div>
   </aside>
   <div class="workspace">
-    <header class="topbar"><div><span class="breadcrumb">WORKSPACE /</span> <span id="page-label">Token launchen</span></div><div class="top-actions"><span id="vault-status-pill" class="pill">Tresor: Laden …</span><span id="connection-status" class="pill">Server verbinden …</span><select id="provider" aria-label="Wallet-Anbieter"><option value="">Browser-Wallet</option></select><button id="connect" class="button secondary">Wallet verbinden ↗</button></div></header>
+    <header class="topbar"><div><span class="breadcrumb">WORKSPACE /</span> <span id="page-label">Token launchen</span></div><div class="top-actions"><button id="vault-topbar-toggle-btn" class="button mini secondary" type="button">Tresor sperren 🔒</button><span id="vault-status-pill" class="pill">Tresor: Laden …</span><span id="connection-status" class="pill">Server verbinden …</span><select id="provider" aria-label="Wallet-Anbieter"><option value="">Browser-Wallet</option></select><button id="connect" class="button secondary">Wallet verbinden ↗</button></div></header>
     <main>
       <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
       <section id="page-dashboard" class="page" hidden>
@@ -62,7 +62,10 @@
         <section class="panel">
           <div class="panel-heading">
             <h2><span class="section-no">02</span> Gelaunchte Tokens (Dauerhafte Übersicht)</h2>
-            <span id="dash-launch-count" class="subtle">0 Tokens</span>
+            <div class="item-actions">
+              <span id="dash-launch-count" class="subtle">0 Tokens</span>
+              <button type="button" id="clear-all-launches-btn" class="button mini secondary danger-hover" data-action="delete-all-launches">🗑️ Alle entfernen</button>
+            </div>
           </div>
           <p class="field-help">Diese Liste bleibt dauerhaft erhalten, selbst wenn du einen Token aus dem aktiven Monitoring entfernst. Du kannst von hier aus jederzeit wieder einen Monitor anlegen oder Gebühren einfordern.</p>
           <div id="dash-launches-list" class="item-list"></div>
@@ -360,4 +363,5 @@
   </div>
   <dialog id="review"><div class="dialog-body"><p class="eyebrow">TRANSAKTIONSPRÜFUNG</p><h2>Bereit für den Launch?</h2><div id="review-content"></div><p class="field-help">Die Simulation prüft den aktuellen Zustand. Gas und Konditionen können sich ändern.</p><div class="form-actions"><button id="send-vault-launch" class="button primary" hidden>Mit Tresor signieren & absenden ↗</button><button id="send-launch" class="button primary">In Browser-Wallet bestätigen ↗</button><button id="close-review" class="button secondary">Zurück</button></div></div></dialog>
   <dialog id="export-dialog"><div class="dialog-body"><p class="eyebrow">SICHERHEITSABFRAGE</p><h2>Private Key anzeigen</h2><p class="field-help">Gib dein Master-Passwort ein, um den Private Key dieser Wallet im Klartext anzuzeigen.</p><form id="export-key-form"><label>Master-Passwort<input type="password" id="export-master-password" placeholder="Passwort eingeben" required></label><div class="form-actions"><button type="submit" class="button primary">Key entschlüsseln</button><button type="button" id="close-export-btn" class="button secondary">Abbrechen</button></div></form><div id="export-result-box" class="export-box" hidden><label>Private Key (Hex)<input id="export-key-output" class="monospace" readonly spellcheck="false"></label><div class="form-actions"><button type="button" id="copy-export-key" class="button secondary">In die Zwischenablage kopieren</button></div></div></div></dialog>
+  <dialog id="vault-quick-unlock-dialog"><div class="dialog-body"><p class="eyebrow">SICHERHEITSABFRAGE</p><h2>Tresor entsperren 🔓</h2><p class="field-help">Gib dein Master-Passwort ein, um deine Wallets im Tresor freizuschalten.</p><form id="vault-quick-unlock-form"><label>Master-Passwort<input type="password" id="quick-unlock-password" placeholder="Passwort eingeben" required autocomplete="current-password"></label><div class="form-actions"><button type="submit" class="button primary">Tresor entsperren 🔓</button><button type="button" id="close-quick-unlock-btn" class="button secondary">Abbrechen</button></div></form></div></dialog>
 </body></html>

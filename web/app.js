@@ -938,6 +938,7 @@ function renderDashboard(state, feeData) {
     render('#dash-launches-list', launches.map(l => {
       const fee = claimableFeesMap[l.curve?.toLowerCase()];
       const feeAmount = fee ? Number(fee.balanceEth) : 0;
+      const formattedFee = feeAmount > 0 ? feeAmount.toFixed(6).replace(/\.?0+$/, '') : '0';
       const stockSym = fee?.stockSymbol || 'SPCX';
       const hasFees = feeAmount > 0;
       const isMine = fee?.isMine || false;
@@ -948,7 +949,7 @@ function renderDashboard(state, feeData) {
             <div class="dash-token-row-header">
               <strong class="dash-token-title">${esc(l.name)}</strong>
               <span class="pill pill-mini">$${esc(l.symbol)}</span>
-              ${hasFees ? `<span class="pill pill-mini pill-active">💰 ${esc(fee.balanceEth)} ${esc(stockSym)}</span>` : ''}
+              ${hasFees ? `<span class="pill pill-mini pill-active">💰 ${esc(formattedFee)} ${esc(stockSym)}</span>` : ''}
             </div>
             <small class="dash-contracts-line">
               Token: <a class="text-link" href="${state.deployment.explorer}/address/${esc(l.token)}" target="_blank" rel="noopener noreferrer">${esc(l.token)} ↗</a>
@@ -957,17 +958,24 @@ function renderDashboard(state, feeData) {
             </small>
             ${l.confirmedAt ? `<small class="subtle dash-confirmed-line">Gelauncht am: ${date(l.confirmedAt)}</small>` : ''}
           </div>
-          <div class="item-actions">
+          <div class="item-actions dash-item-actions">
             ${(hasFees && isMine) ? `
               <button type="button" class="button mini primary" data-action="claim-fees" data-curve="${esc(l.curve)}">
                 Gebühr claimen ➔
               </button>
             ` : ''}
-            <button type="button" class="text-button" data-action="monitor-launch" data-id="${esc(l.hash)}">
+            <button type="button" class="button mini secondary" data-action="monitor-launch" data-id="${esc(l.hash)}">
               Monitoring anlegen ↗
             </button>
-            <a class="text-link" href="${state.deployment.explorer}/tx/${esc(l.hash)}" target="_blank" rel="noopener noreferrer">TX ↗</a>
-            <a class="text-link" href="https://www.standardreserve.xyz/token/${esc(l.token)}" target="_blank" rel="noopener noreferrer">Standard Reserve ↗</a>
+            <a class="button mini secondary" href="${state.deployment.explorer}/tx/${esc(l.hash)}" target="_blank" rel="noopener noreferrer">
+              TX ↗
+            </a>
+            <a class="button mini secondary" href="https://www.standardreserve.xyz/token/${esc(l.token)}" target="_blank" rel="noopener noreferrer">
+              Standard Reserve ↗
+            </a>
+            <button type="button" class="button mini secondary danger-hover" data-action="delete-launch" data-hash="${esc(l.hash)}" title="Diesen Launch aus der Liste entfernen">
+              ✕ Entfernen
+            </button>
           </div>
         </div>
       `;
@@ -1001,6 +1009,20 @@ async function refresh() {
     } else {
       vPill.textContent = `Tresor: Entsperrt 🔓 (${vaultWallets.length})`;
       vPill.className = 'pill';
+    }
+
+    const vToggleBtn = $('#vault-topbar-toggle-btn');
+    if (vToggleBtn) {
+      if (!vaultStatus.initialized) {
+        vToggleBtn.textContent = 'Tresor einrichten 🔒';
+        vToggleBtn.classList.remove('pill-active');
+      } else if (vaultStatus.unlocked) {
+        vToggleBtn.textContent = 'Tresor sperren 🔒';
+        vToggleBtn.classList.remove('pill-active');
+      } else {
+        vToggleBtn.textContent = 'Tresor entsperren 🔓';
+        vToggleBtn.classList.add('pill-active');
+      }
     }
 
     // Wallets page view
@@ -1293,10 +1315,56 @@ document.addEventListener('click', e => {
       } else {
         show(`Gebühren-Abholung abgeschlossen: ${JSON.stringify(res)}`);
       }
+    } else if (action === 'delete-launch') {
+      const hash = button.dataset.hash;
+      await api(`/launches/${hash}`, { method: 'DELETE' });
+      show('Launch aus der Übersicht entfernt.');
+    } else if (action === 'delete-all-launches') {
+      if (!confirm('Möchtest du wirklich alle gelaunchten Tokens aus dieser Übersicht entfernen?')) return;
+      await api('/launches', { method: 'DELETE' });
+      show('Alle gelaunchten Tokens wurden aus der Übersicht entfernt.');
     }
     await refresh();
   });
 });
+
+if ($('#vault-topbar-toggle-btn')) {
+  $('#vault-topbar-toggle-btn').onclick = async () => {
+    if (!vaultStatus.initialized) {
+      navigate('wallets');
+      return;
+    }
+    if (vaultStatus.unlocked) {
+      await post('/vault/lock');
+      show('Tresor gesperrt 🔒.');
+      await refresh();
+    } else {
+      $('#quick-unlock-password').value = '';
+      $('#vault-quick-unlock-dialog').showModal();
+      $('#quick-unlock-password').focus();
+    }
+  };
+}
+
+if ($('#vault-quick-unlock-form')) {
+  $('#vault-quick-unlock-form').onsubmit = e => {
+    e.preventDefault();
+    busy(e.submitter, async () => {
+      const password = $('#quick-unlock-password').value;
+      await post('/vault/unlock', { password });
+      $('#vault-quick-unlock-dialog').close();
+      $('#quick-unlock-password').value = '';
+      show('Tresor erfolgreich entsperrt 🔓.');
+      await refresh();
+    });
+  };
+}
+
+if ($('#close-quick-unlock-btn')) {
+  $('#close-quick-unlock-btn').onclick = () => {
+    $('#vault-quick-unlock-dialog').close();
+  };
+}
 
 await refresh(); void terms();
 if (selectedProvider()) { walletSession.select(selectedProvider()); void walletSession.connect(true).catch(() => {}); }
