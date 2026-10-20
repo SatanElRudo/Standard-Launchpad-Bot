@@ -284,6 +284,24 @@ export function createApp({
         const wallet = vault.findWallet(input.walletId || input.wallet);
         assert(wallet, 'Wallet nicht im Tresor gefunden.');
         const privateKey = vault.getPrivateKey(wallet.id);
+        if (input.imagePath && !input.metadataURI) {
+          try {
+            const { basename } = await import('node:path');
+            const hosted = await hostImageAndMetadata({
+              name: input.name,
+              symbol: input.symbol,
+              description: input.description,
+              website: input.website,
+              sampleAsset: basename(input.imagePath),
+            });
+            if (hosted?.metadataURI) {
+              input.metadataURI = hosted.metadataURI;
+              input.image = hosted.image;
+            }
+          } catch (he) {
+            console.warn('Auto-hosting metadata error:', he.message);
+          }
+        }
         const launchDraft = { ...input, wallet: wallet.address };
         const result = await executeLaunch({ draft: launchDraft, privateKey });
 

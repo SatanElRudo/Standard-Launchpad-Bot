@@ -115,6 +115,36 @@ export async function executeSnipeBuy({
   }
 
   // 3. buyExactIn with on-chain minTokensOut protection
+  let effectiveMinTokensOut = minTokensOut;
+  if (effectiveMinTokensOut > 0n && typeof customClient.simulateContract === 'function') {
+    try {
+      const payAsset = isNativeEth ? zeroAddress : stock;
+      const sim = await customClient.simulateContract({
+        address: deployment.router,
+        abi: routerAbi,
+        functionName: 'buyExactIn',
+        args: [
+          curve,
+          payAsset,
+          amountInWei,
+          0n,
+          0n,
+          account.address,
+          zeroAddress,
+          { recipient: zeroAddress, bps: 0 },
+        ],
+        account: account.address,
+        value: isNativeEth ? amountInWei : 0n,
+      });
+      if (typeof sim?.result === 'bigint' && sim.result > 0n) {
+        const slippageBps = 100n; // 1% tolerance against current block's true simulation
+        effectiveMinTokensOut = sim.result * (10000n - slippageBps) / 10000n;
+      }
+    } catch (simErr) {
+      console.warn('Simulation for minTokensOut fallback to calculated:', simErr.message);
+    }
+  }
+
   const payAsset = isNativeEth ? zeroAddress : stock;
   const buyData = encodeFunctionData({
     abi: routerAbi,
@@ -124,7 +154,7 @@ export async function executeSnipeBuy({
       payAsset,
       amountInWei,
       0n, // minStockOut
-      minTokensOut, // on-chain frontrun & slippage protection
+      effectiveMinTokensOut, // on-chain frontrun & slippage protection
       account.address,
       zeroAddress,
       { recipient: zeroAddress, bps: 0 },

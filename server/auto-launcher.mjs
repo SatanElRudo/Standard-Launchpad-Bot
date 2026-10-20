@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { basename } from 'node:path';
+import { hostImageAndMetadata } from './metadata.mjs';
 
 export function createAutoLauncher({
   store,
@@ -237,6 +239,23 @@ export function createAutoLauncher({
     }
 
     try {
+      if (item.imagePath && !item.metadataURI) {
+        try {
+          const hosted = await hostImageAndMetadata({
+            name: item.name,
+            symbol: item.symbol,
+            description: item.description,
+            website: item.website,
+            sampleAsset: basename(item.imagePath),
+          });
+          if (hosted?.metadataURI) {
+            item.metadataURI = hosted.metadataURI;
+            item.image = hosted.image;
+          }
+        } catch (he) {
+          console.warn('Auto-hosting metadata error:', he.message);
+        }
+      }
       const launchDraft = { ...item, wallet: wallet.address };
       const { hash } = await executeLaunch({ draft: launchDraft, privateKey });
       if (typeof advance === 'function') {
