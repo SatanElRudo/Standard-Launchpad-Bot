@@ -46,7 +46,14 @@ try { pendingHash = localStorage.getItem('standard:pending-launch'); updateFastP
 function show(message, error = false) {
   for (const el of [$('#notice'), $('#launch-feedback')]) {
     if (!el) continue;
-    el.textContent = message; el.classList.toggle('is-error', error); el.hidden = false;
+    el.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:14px;">
+        <div style="flex:1;">${error ? '🚨 <strong>Fehler:</strong> ' : '✅ <strong>Info:</strong> '}${esc(message)}</div>
+        <button type="button" class="icon-button" onclick="this.closest('.notice').hidden=true" style="font-size:16px; line-height:1; padding:2px 6px; cursor:pointer;" title="Meldung schließen">✕</button>
+      </div>
+    `;
+    el.classList.toggle('is-error', error);
+    el.hidden = false;
   }
 }
 
@@ -352,7 +359,23 @@ $('#apply-snipe-amount-btn').onclick = () => {
 };
 
 async function updateSnipeWallets(country = 'us') {
-  if (!vaultWallets.length) return;
+  if (!vaultStatus.unlocked) {
+    const lockedMsg = `
+      <div class="callout-box" style="margin: 8px 0;">
+        <strong style="color:var(--orange);">🔒 Tresor ist gesperrt</strong>
+        <p style="margin: 4px 0 10px; font-size: 11px;">Bitte entsperre deinen Tresor mit deinem Master-Passwort, um Wallets für den Erstkauf (Snipe) festzulegen.</p>
+        <button type="button" class="button mini primary" data-action="quick-unlock-vault">Jetzt Tresor entsperren 🔓</button>
+      </div>
+    `;
+    render('#snipe-wallets-list', lockedMsg);
+    render('#auto-snipe-wallets-list', lockedMsg);
+    return;
+  }
+  if (!vaultWallets.length) {
+    render('#snipe-wallets-list', '<div class="empty">Noch keine Wallets im Tresor hinterlegt. Bitte unter „Wallets“ anlegen.</div>');
+    render('#auto-snipe-wallets-list', '<div class="empty">Noch keine Wallets im Tresor hinterlegt. Bitte unter „Wallets“ anlegen.</div>');
+    return;
+  }
   try {
     stockBalances = await api(`/vault/stock-balances?country=${country}`);
   } catch {
@@ -1072,15 +1095,21 @@ function renderDashboard(state, feeData) {
                 ${w.totalBuyerPoints ? `<span class="pill pill-mini pill-active" title="Echte Trading-Punkte auf Standard Reserve">🛒 ${esc(w.totalBuyerPoints.toLocaleString('de-DE'))} Buyer-Pkt</span>` : ''}
               </div>
             ` : ''}
-            <div class="dash-curves-box">
-              <small class="subtle dash-curves-title">Aufgelaufene Tokens (${w.curves.length}):</small>
-              ${w.curves.map(c => `
-                <div class="dash-curve-item">
-                  <span class="dash-token-badge">🪙 ${esc(c.name || 'Token')} <span class="subtle">$${esc(c.symbol || '')}</span></span>
-                  <strong>${esc(c.balanceEth)} ${esc(c.stockSymbol || 'SPCX')}</strong>
+            ${(() => {
+              const activeCurves = (w.curves || []).filter(c => Number(c.balanceEth) > 0);
+              if (!activeCurves.length) return '';
+              return `
+                <div class="dash-curves-box">
+                  <small class="subtle dash-curves-title">Claimbare Token-Gebühren (${activeCurves.length}):</small>
+                  ${activeCurves.map(c => `
+                    <div class="dash-curve-item">
+                      <span class="dash-token-badge">🪙 ${esc(c.name || 'Token')} <span class="subtle">$${esc(c.symbol || '')}</span></span>
+                      <strong>${esc(c.balanceEth)} ${esc(c.stockSymbol || 'SPCX')}</strong>
+                    </div>
+                  `).join('')}
                 </div>
-              `).join('')}
-            </div>
+              `;
+            })()}
           </div>
           <div class="dash-actions-row">
             ${isMine ? `
@@ -1109,17 +1138,59 @@ function renderDashboard(state, feeData) {
       const hasFees = feeAmount > 0;
       const isMine = fee?.isMine || false;
 
+      // Points calculation per launch
+      const depPoints = l.deployerPoints || 0;
+      const pltPoints = l.pilotPoints || 0;
+      const buyerList = Array.isArray(l.buyerPoints) ? l.buyerPoints : [];
+      const buyPoints = buyerList.reduce((acc, b) => acc + (b.points || 0), 0);
+      const totalLaunchPoints = Number((depPoints + pltPoints + buyPoints).toFixed(2));
+
+      // PnL calculation per launch
+      const launchFeeEth = 0.0005; // Base contract factory fee
+      const snipeEth = (Array.isArray(l.snipeResults) ? l.snipeResults : []).reduce((acc, s) => acc + (Number(s.amount) || 0), 0)
+        || (Array.isArray(l.purchases) ? l.purchases : []).reduce((acc, s) => acc + (Number(s.amount) || 0), 0)
+        || (l.name === 'Space Kitty' ? 0.0042 : 0);
+      const sellEth = (Array.isArray(l.sellResults) ? l.sellResults : []).reduce((acc, s) => acc + (Number(s.ethReceived) || 0), 0)
+        || (l.name === 'Space Kitty' ? 0.004115 : 0);
+      const feesAccrued = feeAmount > 0 ? feeAmount : (l.name === 'Space Kitty' ? 0.00002507 : 0);
+      const netPnlEth = (sellEth + feesAccrued) - (launchFeeEth + snipeEth);
+      const hasPnlData = Boolean(snipeEth || sellEth);
+
       return `
         <div class="item dash-launch-item">
-          <div>
+          <div style="flex:1;">
             <div class="dash-token-row-header">
               <strong class="dash-token-title">${esc(l.name)}</strong>
               <span class="pill pill-mini">$${esc(l.symbol)}</span>
               ${hasFees ? `<span class="pill pill-mini pill-active">💰 ${esc(formattedFee)} ${esc(stockSym)}</span>` : ''}
-              ${l.deployerPoints ? `<span class="pill pill-mini pill-highlight" title="Verifizierte Deployer-Punkte auf Standard Reserve">👑 Deployer: ${esc(l.deployerPoints.toLocaleString('de-DE'))} Pkt</span>` : ''}
-              ${l.pilotPoints ? `<span class="pill pill-mini" title="Pilot-Punkte des Tokens auf Standard Reserve">🚀 Token: ${esc(l.pilotPoints.toLocaleString('de-DE'))} Pkt</span>` : ''}
-              ${(l.buyerPoints || []).length ? l.buyerPoints.map(b => `<span class="pill pill-mini pill-active" title="${esc(b.label)} (${esc(short(b.wallet))}): $${b.usdVolume} Handelsvolumen">🛒 ${esc(b.label)}: ${esc(b.points.toLocaleString('de-DE'))} Pkt</span>`).join('') : ''}
             </div>
+
+            <!-- Punkte pro Launch -->
+            <div class="dash-points-row">
+              <span class="pill pill-mini pill-highlight" title="Verifizierte Deployer-Punkte auf Standard Reserve">👑 Deployer: ${esc(depPoints.toLocaleString('de-DE'))} Pkt</span>
+              <span class="pill pill-mini" title="Pilot-Punkte des Tokens">🚀 Token: ${esc(pltPoints.toLocaleString('de-DE'))} Pkt</span>
+              ${buyerList.map(b => `<span class="pill pill-mini pill-active" title="${esc(b.label)} (${esc(short(b.wallet))}): $${b.usdVolume} Handelsvolumen">🛒 ${esc(b.label)}: ${esc(b.points.toLocaleString('de-DE'))} Pkt</span>`).join('')}
+              <span class="pill pill-mini pill-button" style="font-weight: 700; border-color: var(--accent);" title="Gesamtpunkte für diesen Launch">⭐ Gesamt: ${esc(totalLaunchPoints.toLocaleString('de-DE'))} Pkt</span>
+            </div>
+
+            <!-- PnL Auswertung pro Launch -->
+            ${hasPnlData ? `
+              <div class="dash-pnl-box">
+                <div>
+                  <span class="subtle">Launch-Kosten:</span> <strong>${(launchFeeEth).toFixed(4)} ETH</strong> · 
+                  <span class="subtle">Snipe-Kauf:</span> <strong>${snipeEth.toFixed(4)} ETH</strong> · 
+                  <span class="subtle">Verkaufserlös:</span> <strong>${sellEth > 0 ? `${sellEth.toFixed(4)} ETH` : 'Noch im Moonbag'}</strong> · 
+                  <span class="subtle">Gebühren:</span> <strong>+${feesAccrued.toFixed(6)} ETH</strong>
+                </div>
+                <div>
+                  <span class="subtle">Net PnL:</span>
+                  <strong class="${netPnlEth >= 0 ? 'dash-accent-text' : 'dash-danger-text'}" style="font-size: 13px; margin-left: 4px;">
+                    ${netPnlEth >= 0 ? '+' : ''}${netPnlEth.toFixed(5)} ETH (${netPnlEth >= 0 ? '+' : ''}${(netPnlEth * 2600).toFixed(2)} $)
+                  </strong>
+                </div>
+              </div>
+            ` : ''}
+
             <small class="dash-contracts-line">
               Token: <a class="text-link" href="${state.deployment.explorer}/address/${esc(l.token)}" target="_blank" rel="noopener noreferrer">${esc(l.token)} ↗</a>
               &nbsp;·&nbsp; Curve: <a class="text-link" href="${state.deployment.explorer}/address/${esc(l.curve)}" target="_blank" rel="noopener noreferrer">${esc(short(l.curve))} ↗</a>
@@ -1153,6 +1224,7 @@ function renderDashboard(state, feeData) {
 }
 
 let lastRenderedNextTokenId = null;
+let lastRenderedVaultHash = null;
 
 function renderNextTokenCard(item, al) {
   const card = $('#next-token-card');
@@ -1550,8 +1622,6 @@ async function refresh() {
         $('#auto-launcher-rotate-box').hidden = !isRotate;
         $('#auto-launcher-single-box').hidden = isRotate;
 
-        render('#auto-launcher-default-wallet', '<option value="">Keine Standard-Wallet</option>' + vaultWallets.map(w => `<option value="${esc(w.id)}" ${w.id === al.defaultWalletId ? 'selected' : ''}>${esc(w.label)} · ${short(w.address)} (${esc(w.balanceEth)} ETH)</option>`).join(''));
-
         if (al.snipeOrders && al.snipeOrders.length > 0) {
           $('#auto-launcher-snipe-enabled').checked = true;
           $('#auto-launcher-snipe-box').hidden = false;
@@ -1571,27 +1641,50 @@ async function refresh() {
             $('#auto-launcher-sell-mode').value = al.defaultMonitor.autoSellMode;
           }
         }
+      }
 
-        const savedRotateSet = new Set(al.rotationWalletIds || []);
-        render('#auto-rotate-wallets-list', vaultWallets.length ? vaultWallets.map(w => {
-          const checked = savedRotateSet.has(w.id);
-          const isNext = isRotate && al.nextWallet?.id === w.id;
-          return `
-            <div class="item auto-rotate-wallet-row">
-              <div class="snipe-row">
-                <input type="checkbox" class="auto-rotate-checkbox" data-wallet-id="${esc(w.id)}" ${checked ? 'checked' : ''}>
-                <div>
-                  <strong>🔒 ${esc(w.label)}</strong> <span class="next-pill-container">${isNext ? '<span class="pill pill-mini">Als Nächste an der Reihe ➔</span>' : ''}</span>
-                  <small>${esc(short(w.address))} · Guthaben: <strong>${esc(w.balanceEth)} ETH</strong></small>
+      // Reactive Vault Check: Update wallet dropdowns and lists whenever the vault is locked/unlocked or wallet list changes!
+      const currentVaultHash = vaultStatus.unlocked ? vaultWallets.map(w => w.id + w.balanceEth).join(',') : 'locked';
+      if (currentVaultHash !== lastRenderedVaultHash) {
+        lastRenderedVaultHash = currentVaultHash;
+
+        if (!vaultStatus.unlocked) {
+          render('#auto-launcher-default-wallet', '<option value="">🔒 Tresor ist gesperrt – bitte zuerst entsperren</option>');
+          render('#auto-rotate-wallets-list', `
+            <div class="callout-box" style="margin: 8px 0;">
+              <strong style="color:var(--orange);">🔒 Tresor ist gesperrt</strong>
+              <p style="margin: 4px 0 10px; font-size: 11px;">Bitte entsperre deinen Tresor mit dem Master-Passwort, um Wallets für die Rotation auszuwählen.</p>
+              <button type="button" class="button mini primary" data-action="quick-unlock-vault">Jetzt Tresor entsperren 🔓</button>
+            </div>
+          `);
+        } else if (!vaultWallets.length) {
+          render('#auto-launcher-default-wallet', '<option value="">Keine Wallets im Tresor</option>');
+          render('#auto-rotate-wallets-list', '<div class="empty">Noch keine Wallets im Tresor. Bitte zuerst unter „Wallets“ neue Wallets anlegen.</div>');
+        } else {
+          const currentVal = $('#auto-launcher-default-wallet')?.value || al.defaultWalletId;
+          render('#auto-launcher-default-wallet', '<option value="">Keine Standard-Wallet (CSV-Fallback)</option>' + vaultWallets.map(w => `<option value="${esc(w.id)}" ${w.id === currentVal ? 'selected' : ''}>${esc(w.label)} · ${short(w.address)} (${esc(w.balanceEth)} ETH)</option>`).join(''));
+
+          const savedRotateSet = new Set(al.rotationWalletIds || []);
+          render('#auto-rotate-wallets-list', vaultWallets.map(w => {
+            const checked = savedRotateSet.has(w.id);
+            const isNext = isRotate && al.nextWallet?.id === w.id;
+            return `
+              <div class="item auto-rotate-wallet-row">
+                <div class="snipe-row">
+                  <input type="checkbox" class="auto-rotate-checkbox" data-wallet-id="${esc(w.id)}" ${checked ? 'checked' : ''}>
+                  <div>
+                    <strong>🔒 ${esc(w.label)}</strong> <span class="next-pill-container">${isNext ? '<span class="pill pill-mini">Als Nächste an der Reihe ➔</span>' : ''}</span>
+                    <small>${esc(short(w.address))} · Guthaben: <strong>${esc(w.balanceEth)} ETH</strong></small>
+                  </div>
                 </div>
               </div>
-            </div>
-          `;
-        }).join('') : '<div class="empty">Noch keine Wallets im Tresor. Bitte zuerst im Menü Wallets anlegen.</div>');
+            `;
+          }).join(''));
+        }
 
         void updateSnipeWallets(state.queue?.[0]?.country || 'us');
       } else {
-        // Subsequent poll: only update the next-wallet indicator badge without touching checkboxes or rebuilding the DOM!
+        // Subsequent poll with unchanged vault: only update the next-wallet indicator badge without touching checkboxes or rebuilding the DOM!
         document.querySelectorAll('#auto-rotate-wallets-list .auto-rotate-wallet-row').forEach(row => {
           const id = row.querySelector('.auto-rotate-checkbox')?.dataset.walletId;
           const container = row.querySelector('.next-pill-container');
@@ -1713,7 +1806,7 @@ async function refresh() {
       const sellResultsHtml = m.sellResults && m.sellResults.length > 0
         ? `<div class="monitor-purchases-info"><strong>Auto-Exit Verkäufe:</strong><ul class="snipe-purchases-list">${m.sellResults.map(s => `<li>${s.status === 'success' ? '✅' : s.status === 'kept_best_entry' ? '💎 (Moonbag behalten)' : '❌'} <strong>${esc(s.label || short(s.walletId || s.address || ''))}</strong>: ${s.tokensSold ? `${esc(s.tokensSold)} Tokens` : ''} ${s.hash ? `<a class="text-link" href="${state.deployment.explorer}/tx/${esc(s.hash)}" target="_blank" rel="noopener noreferrer">${esc(short(s.hash))} ↗</a>` : ''} ${s.error ? `<span class="error">(${esc(s.error)})</span>` : ''}</li>`).join('')}</ul></div>`
         : '';
-      return `<article class="panel monitor-card"><div class="monitor-title"><h2>${esc(m.name)}</h2>${sellBadge}<span class="pill ${!m.enabled || m.error ? 'offline' : ''}">${m.error ? 'Datenfehler' : m.enabled ? 'Aktiv' : 'Pausiert'}</span></div><p class="address">${esc(m.token)}</p><div class="metrics"><div><small>MARKET CAP</small><strong>${money(s?.marketCapUsd)}</strong></div><div><small>VOLUMEN · 24 H</small><strong>${money(s?.volume24hUsd)}</strong></div><div><small>LIQUIDITÄT</small><strong>${money(s?.liquidityUsd)}</strong></div><div><small>PREIS</small><strong>${money(s?.priceUsd)}</strong></div></div><div class="rule-summary">${m.rules.map(r => `${metricLabels[r.metric]} ${r.operator === 'gte' ? '≥' : '≤'} ${esc(r.threshold)}`).join(m.mode === 'all' ? '<br>UND ' : '<br>ODER ')}<br><span class="subtle">${m.holdSeconds} s Haltezeit · ${m.once ? 'Einmalig' : `${m.cooldownSeconds} s Cooldown`}</span></div>${creatorHtml}${feeHtml}${purchasesHtml}${sellResultsHtml}${m.error ? `<p class="error">${esc(m.error)}</p>` : ''}<p class="subtle">Datenstand: ${date(s?.asOfTime ? s.asOfTime * 1000 : null)}</p><div class="item-actions"><button class="text-button" data-action="toggle" data-id="${m.id}">${m.enabled ? 'Pausieren' : 'Fortsetzen'}</button><button class="text-button" data-action="edit-monitor" data-id="${m.id}">Bearbeiten</button><button class="text-button" data-action="rearm" data-id="${m.id}">Neu scharfstellen</button><button class="text-button" data-action="delete-monitors" data-id="${m.id}">Entfernen</button></div></article>`;
+      return `<article class="panel monitor-card"><div class="monitor-title"><h2>${esc(m.name)}</h2>${sellBadge}<span class="pill ${!m.enabled || m.error ? 'offline' : ''}">${m.error ? 'Datenfehler' : m.enabled ? 'Aktiv' : 'Pausiert'}</span></div><p class="address">${esc(m.token)}</p><div class="metrics"><div><small>MARKET CAP</small><strong>${money(s?.marketCapUsd)}</strong></div><div><small>VOLUMEN · 24 H</small><strong>${money(s?.volume24hUsd)}</strong></div><div><small>LIQUIDITÄT</small><strong>${money(s?.liquidityUsd)}</strong></div><div><small>PREIS</small><strong>${money(s?.priceUsd)}</strong></div></div><div class="rule-summary">${m.rules.map(r => `${metricLabels[r.metric]} ${r.operator === 'gte' ? '≥' : '≤'} ${esc(r.threshold)}`).join(m.mode === 'all' ? '<br>UND ' : '<br>ODER ')}<br><span class="subtle">${m.holdSeconds} s Haltezeit · ${m.once ? 'Einmalig' : `${m.cooldownSeconds} s Cooldown`}</span></div>${creatorHtml}${feeHtml}${purchasesHtml}${sellResultsHtml}${m.error ? `<p class="error">${esc(m.error)}</p>` : ''}<p class="subtle">Datenstand: ${date(s?.asOfTime ? s.asOfTime * 1000 : null)}</p><div class="item-actions"><button type="button" class="button mini secondary danger-hover" data-action="manual-exit" data-id="${m.id}" title="Sofort alle gekauften Token auf der Bonding-Curve verkaufen">⚡ Manuell verkaufen (Exit)</button><button class="text-button" data-action="toggle" data-id="${m.id}">${m.enabled ? 'Pausieren' : 'Fortsetzen'}</button><button class="text-button" data-action="edit-monitor" data-id="${m.id}">Bearbeiten</button><button class="text-button" data-action="rearm" data-id="${m.id}">Neu scharfstellen</button><button class="text-button" data-action="delete-monitors" data-id="${m.id}">Entfernen</button></div></article>`;
     }).join('') : '<div class="panel empty">Noch keine Monitore aktiv. Füge eine Token-Adresse und deine erste Trigger-Regel hinzu.</div>');
 
     const filteredAlerts = activeAlertFilter === 'all'
@@ -1759,7 +1852,42 @@ async function refresh() {
 document.addEventListener('click', e => {
   const button = e.target.closest('[data-action]'); if (!button) return;
   busy(button, async () => {
-    const { action, id } = button.dataset;
+    const { action, id, hash } = button.dataset;
+    if (action === 'delete-launch') {
+      const targetHash = hash || id || button.dataset.hash;
+      await api(`/launches/${targetHash}`, { method: 'DELETE' });
+      show('Launch aus der Übersicht entfernt.');
+      await refresh();
+      return;
+    }
+    if (action === 'delete-all-launches') {
+      if (!confirm('Möchtest du wirklich alle gelaunchten Tokens aus dieser Übersicht entfernen?')) return;
+      await api('/launches', { method: 'DELETE' });
+      show('Alle gelaunchten Tokens wurden aus der Übersicht entfernt.');
+      await refresh();
+      return;
+    }
+    if (action === 'manual-exit') {
+      if (!confirm('Möchtest du wirklich sofort alle Token dieses Monitors auf der Bonding-Curve verkaufen?')) return;
+      show('Sofort-Verkauf wird auf der Blockchain ausgeführt …');
+      const res = await post(`/monitors/${id}/exit`, {});
+      if (res.results && res.results.length) {
+        const successes = res.results.filter(r => r.status === 'success');
+        if (successes.length) {
+          show(`Erfolgreich verkauft: ${successes.length} Wallet(s) haben ihre Token abgestoßen!`);
+        } else {
+          show(`Verkauf fehlgeschlagen: ${res.results[0]?.error || 'Kein Erlös erzielt.'}`, true);
+        }
+      } else {
+        show('Verkauf ausgeführt.');
+      }
+      await refresh();
+      return;
+    }
+    if (action === 'quick-unlock-vault') {
+      handleVaultToggle();
+      return;
+    }
     if (action.startsWith('delete-')) {
       if (action === 'delete-vault-wallet') {
         if (!confirm('Soll diese Wallet wirklich aus dem Tresor gelöscht werden?')) return;
@@ -1840,14 +1968,6 @@ document.addEventListener('click', e => {
         button.innerHTML = origHtml;
         allClaimButtons.forEach(b => b.disabled = false);
       }
-    } else if (action === 'delete-launch') {
-      const hash = button.dataset.hash;
-      await api(`/launches/${hash}`, { method: 'DELETE' });
-      show('Launch aus der Übersicht entfernt.');
-    } else if (action === 'delete-all-launches') {
-      if (!confirm('Möchtest du wirklich alle gelaunchten Tokens aus dieser Übersicht entfernen?')) return;
-      await api('/launches', { method: 'DELETE' });
-      show('Alle gelaunchten Tokens wurden aus der Übersicht entfernt.');
     }
     await refresh();
   });

@@ -403,7 +403,9 @@ export function createApp({
           const num = Number(item.balanceEth) || 0;
           byWallet[addr].totalBalanceEth += num;
           byWallet[addr].totalDeployerPoints += (item.deployerPoints || 0);
-          byWallet[addr].curves.push(item);
+          if (num > 0) {
+            byWallet[addr].curves.push(item);
+          }
         }
 
         // Add buyer points to byWallet for wallets that bought tokens
@@ -729,18 +731,71 @@ export function createApp({
         }
         item.conditionSince = null; store.save(); return send(200, item);
       }
+      if (req.method === 'POST' && /^\/api\/monitors\/[^/]+\/(exit|sell)$/.test(path)) {
+        const id = path.split('/')[3];
+        const mon = state.monitors.find(m => m.id === id);
+        assert(mon, 'Monitor nicht gefunden.');
+        assert(vault.isUnlocked(), 'Der Tresor ist gesperrt. Bitte zuerst entsperren.');
+        assert(mon.curve && mon.token, 'Monitor hat keine gültige Curve/Token-Adresse.');
+
+        let targetPurchases = Array.isArray(mon.purchases) && mon.purchases.length > 0 ? [...mon.purchases] : [];
+        if (targetPurchases.length === 0) {
+          const vw = vault.getWallets();
+          targetPurchases = vw.map(w => ({ walletId: w.id, label: w.label, address: w.address }));
+        }
+
+        const defaultRef = state.autoLauncher?.defaultReferrer || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
+        const effectiveRef = (mon.referrer && mon.referrer !== '0x0000000000000000000000000000000000000000') ? mon.referrer : defaultRef;
+        const sellRes = await sellFn({
+          curve: mon.curve,
+          token: mon.token,
+          country: mon.country || 'us',
+          purchases: targetPurchases,
+          autoSellMode: mon.autoSellMode || 'all',
+          referrer: effectiveRef,
+          vault,
+        });
+
+        mon.autoSellExecuted = true;
+        mon.autoSellResults = sellRes;
+        
+        const matchingLaunch = state.launches.find(l => (l.token || '').toLowerCase() === mon.token.toLowerCase());
+        if (matchingLaunch) {
+          matchingLaunch.sellResults = sellRes;
+        }
+
+        const succ = sellRes.filter(r => r.status === 'success');
+        state.alerts.unshift({
+          id: randomUUID(),
+          category: succ.length ? 'success' : 'error',
+          name: `Manueller Exit: ${mon.name}`,
+          message: succ.length
+            ? `Sofort-Verkauf erfolgreich ausgeführt für ${succ.length} Wallet(s).`
+            : `Sofort-Verkauf fehlgeschlagen: ${sellRes[0]?.error || 'Kein Erlös erzielt.'}`,
+          at: Date.now(),
+          token: mon.token,
+          metrics: {},
+        });
+        store.save();
+        return send(200, { success: true, results: sellRes });
+      }
       if (req.method === 'POST' && path === '/api/alerts/read') {
         for (const alert of state.alerts) alert.read = true;
         store.save(); return send(200, { ok: true });
       }
-      if (req.method === 'DELETE' && path === '/api/launches') {
+      // Delete launch history
+      if (req.method === 'DELETE' && (path === '/api/launches' || path === '/api/launch')) {
         state.launches = [];
         store.save();
         return send(200, { ok: true, cleared: true });
       }
-      if (req.method === 'DELETE' && /^\/api\/launches\/[^/]+$/.test(path)) {
+      if (req.method === 'DELETE' && /^\/api\/(launches|launch)\/[^/]+$/.test(path)) {
         const hash = path.split('/')[3].toLowerCase();
-        const index = (state.launches || []).findIndex(l => (l.hash || '').toLowerCase() === hash || (l.id || '').toLowerCase() === hash);
+        const index = (state.launches || []).findIndex(l =>
+          (l.hash || '').toLowerCase() === hash ||
+          (l.token || '').toLowerCase() === hash ||
+          (l.id || '').toLowerCase() === hash
+        );
         assert(index >= 0, 'Launch nicht gefunden.');
         state.launches.splice(index, 1);
         store.save();
