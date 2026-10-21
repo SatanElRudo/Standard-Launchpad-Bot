@@ -212,7 +212,7 @@ function preview() {
   $('#metadata-default-note').hidden = Boolean(draft.metadataURI.trim());
   const curMsg = `Kaufwährung: $${pairInfo.symbol} (Handelspaar ${pairInfo.symbol} · ${pairInfo.name}). Ausgewählte Tresor-Wallets kaufen sofort nach Bestätigung auf der Bonding-Curve ein.`;
   if ($('#snipe-currency-help')) $('#snipe-currency-help').textContent = curMsg;
-  if ($('#auto-snipe-currency-help')) $('#auto-snipe-currency-help').textContent = `Kaufwährung hängt vom Paar ab (z. B. $${pairInfo.symbol} für ${pairInfo.name}). Wähle bis zu 10 Wallets und Betrag:`;
+  if ($('#auto-snipe-currency-help')) $('#auto-snipe-currency-help').textContent = `Kaufwährung hängt vom Paar ab (z. B. $${pairInfo.symbol} für ${pairInfo.name}). Wähle bis zu 50 Wallets und Betrag:`;
   void updateSnipeWallets(draft.country);
 }
 $('#launch-form').addEventListener('input', preview);
@@ -340,7 +340,15 @@ $('#auto-launcher-snipe-enabled').onchange = e => {
 };
 if ($('#auto-snipe-select-all')) {
   $('#auto-snipe-select-all').onclick = () => {
-    document.querySelectorAll('#auto-snipe-wallets-list .auto-snipe-checkbox').forEach(cb => cb.checked = true);
+    let count = 0;
+    document.querySelectorAll('#auto-snipe-wallets-list .auto-snipe-checkbox').forEach(cb => {
+      if (count < 50) {
+        cb.checked = true;
+        count++;
+      } else {
+        cb.checked = false;
+      }
+    });
   };
 }
 if ($('#auto-snipe-select-none')) {
@@ -479,13 +487,13 @@ async function updateSnipeWallets(country = 'us') {
     `;
   }).join(''));
 
-  // Attach max-10 limit
+  // Attach max-50 limit
   document.querySelectorAll('#snipe-wallets-list .snipe-checkbox').forEach(cb => {
     cb.onchange = e => {
       const allChecked = document.querySelectorAll('#snipe-wallets-list .snipe-checkbox:checked');
-      if (allChecked.length > 10) {
+      if (allChecked.length > 50) {
         e.target.checked = false;
-        show('Maximal 10 Wallets für den Erstkauf erlaubt.', true);
+        show('Maximal 50 Wallets für den Erstkauf erlaubt.', true);
       }
     };
   });
@@ -561,9 +569,9 @@ async function updateSnipeWallets(country = 'us') {
   document.querySelectorAll('#auto-snipe-wallets-list .auto-snipe-checkbox').forEach(cb => {
     cb.onchange = e => {
       const allChecked = document.querySelectorAll('#auto-snipe-wallets-list .auto-snipe-checkbox:checked');
-      if (allChecked.length > 10) {
+      if (allChecked.length > 50) {
         e.target.checked = false;
-        show('Maximal 10 Wallets für den Erstkauf erlaubt.', true);
+        show('Maximal 50 Wallets für den Erstkauf erlaubt.', true);
       }
     };
   });
@@ -597,7 +605,7 @@ $('#launch-form').onsubmit = e => { e.preventDefault(); busy(e.submitter, async 
         if (Number.isFinite(amount) && amount > 0) snipeOrders.push({ walletId, amount: cleanAmt });
       }
     });
-    if (snipeOrders.length > 10) throw new Error('Maximal 10 Wallets für Erstkauf erlaubt.');
+    if (snipeOrders.length > 50) throw new Error('Maximal 50 Wallets für Erstkauf erlaubt.');
     if (snipeOrders.length === 0) throw new Error('Erstkauf ist aktiviert, aber es wurde keine Wallet ausgewählt.');
   }
 

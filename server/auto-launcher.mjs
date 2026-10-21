@@ -278,7 +278,7 @@ export function createAutoLauncher({
       };
     }
     if (Array.isArray(snipeOrders)) {
-      al.snipeOrders = snipeOrders.slice(0, 10);
+      al.snipeOrders = snipeOrders.slice(0, 50);
     }
     if (defaultMonitor && typeof defaultMonitor === 'object') {
       al.defaultMonitor = defaultMonitor;

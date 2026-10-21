@@ -12,15 +12,15 @@ function createMockStore() {
   return { state, save: () => {} };
 }
 
-test('sniper limits to 10 wallets and validates inputs', async () => {
+test('sniper limits to 50 wallets and validates inputs', async () => {
   const store = createMockStore();
   const vault = createVault({ store });
   vault.init('masterpass123');
 
-  const tooMany = Array.from({ length: 11 }, (_, i) => ({ walletId: `w-${i}`, amount: 5 }));
+  const tooMany = Array.from({ length: 51 }, (_, i) => ({ walletId: `w-${i}`, amount: 5 }));
   await assert.rejects(
     executeMultiSnipe({ curve: '0x' + '1'.repeat(40), country: 'us', snipeOrders: tooMany, vault }),
-    /Maximal 10 Snipe-Wallets/
+    /Maximal 50 Snipe-Wallets/
   );
 });
 

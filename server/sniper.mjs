@@ -222,7 +222,7 @@ export async function executeMultiSnipe({
   prioGasGwei = null,
 } = {}) {
   assert(Array.isArray(snipeOrders), 'Snipe-Aufträge müssen als Liste übergeben werden.');
-  assert(snipeOrders.length <= 10, 'Maximal 10 Snipe-Wallets erlaubt.');
+  assert(snipeOrders.length <= 50, 'Maximal 50 Snipe-Wallets erlaubt.');
   if (snipeOrders.length === 0) return [];
 
   const stockInfo = deployment.stocks[country];
