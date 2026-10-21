@@ -113,10 +113,12 @@ Der Bot unterstützt alle Handelspaare von Standard Reserve nativ:
 * **Exakte Erlöserfassung:** Liest den tatsächlichen Rückfluss in ETH oder SPCX direkt aus den On-Chain-Receipts aus.
 
 ### 7. 🎁 Referral / Punkte-Belohnungen
-* Die im Auto-Launcher oder im Launch-Formular konfigurierte Referrer-Adresse (oder deine eigene) wird in allen Transaktionen mitgegeben:
+* **Eigene Ref-Adresse hinterlegen:** Trage im Tab **„Entwurfs-Queue“** unter **„🎯 Referral / Punkte-Adresse (Ref)“** einfach deine persönliche Wallet-Adresse ein (oder pro Zeile in der CSV-Datei).
+* Der Bot gibt diese Adresse automatisch in allen Transaktionen on-chain mit:
   1. Token Launch (`params.referrer`)
   2. Snipe Kauf (`router.buyExactIn` Parameter 6)
   3. Exit Verkauf (`router.sellExactIn` Parameter 5)
+* Dadurch werden alle Referral-Punkte für die Season-1-Ausschüttung automatisch auf deiner Wunsch-Wallet gesammelt. Bleibt das Feld leer, wird die Null-Adresse verwendet.
 
 ### 8. 📊 Dashboard, PnL & Punkte-Auswertung
 * **Live-Punkte von Standard Reserve:** Bezieht die offiziellen Season-1-Punkte direkt von der Standard Reserve API (5,07 Punkte pro gehandeltem Dollar + Deployer-Anteile).
