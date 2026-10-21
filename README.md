@@ -88,6 +88,13 @@ Anschließend im Browser aufrufen: **`http://127.0.0.1:4317`**
   * Durch `.gitignore` geschützt – deine Token-Namen, Beschreibungen und Adressen werden **niemals auf GitHub übertragen**.
   * **Automatisches Entfernen:** Sobald ein Token erfolgreich gelauncht wird, wird die Zeile sofort und sauber direkt aus `data/launch-queue.csv` auf der Festplatte entfernt.
   * **Hot-Reload:** Änderungen an der Datei werden im laufenden Betrieb erkannt und sofort in den Bot übernommen.
+* **Intelligente Queue-Steuerung (Start / Pause Toggle):**
+  * **Wechselseitiger Toggle:** Start- und Pause-Buttons schalten sich gegenseitig um. Ein mehrfaches Klicken auf Start oder Pause ist technisch ausgeschlossen.
+  * **Sekundengenaue Timer-Wiederaufnahme:** Bei Klick auf **Pause** (oder automatischem Pause bei gesperrtem Tresor) wird die verbleibende Restzeit bis zum nächsten Launch gesichert. Klickst du auf **„Fortsetzen“**, läuft der Countdown exakt an dieser Sekunde weiter, ohne das Intervall neu zu starten.
+  * **Zählerstand-Erhalt:** Beim Fortsetzen bleibt auch der Fortschrittszähler für die Zielanzahl X (z. B. `2 / 5 ausgeführt`) vollständig erhalten und wird nicht genullt.
+* **Webinterface-Priorität für Launch-Wallets:**
+  * Standardmäßig haben deine Einstellungen im Webinterface (**„Feste Wallet“** oder **„Automatisch rotieren“**) absolute Priorität gegenüber der CSV.
+  * **Optionale CSV-Aktivierung:** Über die Checkbox *„Wallet-Spalte aus CSV bevorzugen“* kannst du gezielt aktivieren, dass pro Token in der CSV definierte Deployer-Wallets verwendet werden.
 * **Vorlage für GitHub (`examples/launch-queue.csv`):**
   * Enthält neutrale Dummy-Beispieldaten für GitHub und kann über den Button *„CSV-Vorlage herunterladen ↓“* in der UI als Template bezogen werden.
 
