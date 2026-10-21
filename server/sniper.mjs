@@ -76,17 +76,29 @@ export async function executeSnipeBuy({
     transport: http(deployment.rpc, { timeout: 25_000, retryCount: 2 }),
   });
 
-  // 1. Balance check
+  // 1. Balance and gas price check in parallel to eliminate sequential RPC round-trips
+  const [balance, baseGasPrice] = await Promise.all([
+    isNativeEth
+      ? customClient.getBalance({ address: account.address })
+      : customClient.readContract({
+          address: stock,
+          abi: erc20Abi,
+          functionName: 'balanceOf',
+          args: [account.address],
+        }),
+    (async () => {
+      try {
+        if (typeof customClient.getGasPrice === 'function') {
+          return await customClient.getGasPrice();
+        }
+      } catch {}
+      return 30_000_000n;
+    })(),
+  ]);
+
   if (isNativeEth) {
-    const balance = await customClient.getBalance({ address: account.address });
     assert(balance >= amountInWei, `Wallet ${wallet.label} hat nicht genug ETH (vorhanden: ${formatEther(balance)}, benötigt: ${cleanAmount} ETH).`);
   } else {
-    const balance = await customClient.readContract({
-      address: stock,
-      abi: erc20Abi,
-      functionName: 'balanceOf',
-      args: [account.address],
-    });
     assert(balance >= amountInWei, `Wallet ${wallet.label} hat nicht genug ${stockSymbol} (vorhanden: ${formatEther(balance)}, benötigt: ${cleanAmount}).`);
   }
 
@@ -119,36 +131,8 @@ export async function executeSnipeBuy({
     ? referrer
     : zeroAddress;
 
-  // 3. buyExactIn with on-chain minTokensOut protection
-  let effectiveMinTokensOut = minTokensOut;
-  if (effectiveMinTokensOut > 0n && typeof customClient.simulateContract === 'function') {
-    try {
-      const payAsset = isNativeEth ? zeroAddress : stock;
-      const sim = await customClient.simulateContract({
-        address: deployment.router,
-        abi: routerAbi,
-        functionName: 'buyExactIn',
-        args: [
-          curve,
-          payAsset,
-          amountInWei,
-          0n,
-          0n,
-          account.address,
-          effectiveReferrer,
-          { recipient: zeroAddress, bps: 0 },
-        ],
-        account: account.address,
-        value: isNativeEth ? amountInWei : 0n,
-      });
-      if (typeof sim?.result === 'bigint' && sim.result > 0n) {
-        const slippageBps = 100n; // 1% tolerance against current block's true simulation
-        effectiveMinTokensOut = sim.result * (10000n - slippageBps) / 10000n;
-      }
-    } catch (simErr) {
-      console.warn('Simulation for minTokensOut fallback to calculated:', simErr.message);
-    }
-  }
+  // 3. buyExactIn with on-chain minTokensOut protection (using deterministic bonding curve math directly)
+  const effectiveMinTokensOut = minTokensOut ?? 0n;
 
   const payAsset = isNativeEth ? zeroAddress : stock;
   const buyData = encodeFunctionData({
@@ -166,11 +150,10 @@ export async function executeSnipeBuy({
     ],
   });
 
-  let gasPrice;
-  try {
-    const baseGasPrice = await customClient.getGasPrice();
-    gasPrice = baseGasPrice * 130n / 100n; // 30% priority fee bump to be mined first
-  } catch {}
+  let gasPrice = (typeof baseGasPrice === 'bigint' ? baseGasPrice : 30_000_000n) * 250n / 100n;
+  if (gasPrice < 75_000_000n) {
+    gasPrice = 75_000_000n; // At least 0.075 Gwei to outbid outsider bots
+  }
 
   const hash = await walletClient.sendTransaction({
     to: deployment.router,

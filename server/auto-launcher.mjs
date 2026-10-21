@@ -451,31 +451,11 @@ export function createAutoLauncher({
         } catch {
           // RPC delay or pending
         }
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise(r => setTimeout(r, 25));
       }
 
       if (result?.status === 'success') {
-        const launchedItem = state.queue.shift();
-        if (typeof removeQueueItemFn === 'function' && launchedItem) {
-          try {
-            await removeQueueItemFn({ name: launchedItem.name, symbol: launchedItem.symbol });
-          } catch (e) {
-            console.warn('[AutoLauncher] CSV update error:', e.message);
-          }
-        }
-        if (!state.launches.some(l => l.hash === hash)) {
-          state.launches.unshift(result);
-        }
-        al.lastSuccess = {
-          name: item.name,
-          symbol: item.symbol,
-          hash,
-          token: result.token,
-          at: Date.now(),
-        };
-        al.lastError = null;
-
-        // 1. PRIORITY EXECUTION: Execute snipe purchase IMMEDIATELY before any other background processing
+        // 1. PRIORITY EXECUTION: Execute snipe purchase IMMEDIATELY before disk I/O or background processing
         let snipeRes = [];
         if (typeof snipeFn === 'function' && Array.isArray(al.snipeOrders) && al.snipeOrders.length > 0 && result.curve) {
           try {
@@ -514,6 +494,27 @@ export function createAutoLauncher({
           }
         }
 
+        // 2. Queue state & CSV update (deferred after snipe is fired)
+        const launchedItem = state.queue.shift();
+        if (typeof removeQueueItemFn === 'function' && launchedItem) {
+          try {
+            await removeQueueItemFn({ name: launchedItem.name, symbol: launchedItem.symbol });
+          } catch (e) {
+            console.warn('[AutoLauncher] CSV update error:', e.message);
+          }
+        }
+        if (!state.launches.some(l => l.hash === hash)) {
+          state.launches.unshift(result);
+        }
+        al.lastSuccess = {
+          name: item.name,
+          symbol: item.symbol,
+          hash,
+          token: result.token,
+          at: Date.now(),
+        };
+        al.lastError = null;
+
         state.alerts.unshift({
           id: randomUUID(),
           category: 'success',
@@ -531,7 +532,7 @@ export function createAutoLauncher({
           savedLaunch.sellResults = [];
         }
 
-        // 2. Initialize monitor with the already-executed purchases attached
+        // 3. Initialize monitor with the already-executed purchases attached
         let createdMon = null;
         if (typeof createMonitorFn === 'function') {
           try {
@@ -568,7 +569,9 @@ export function createAutoLauncher({
           }
         }
 
-        al.executedInRun = (al.executedInRun || 0) + 1;
+        if (!manual) {
+          al.executedInRun = (al.executedInRun || 0) + 1;
+        }
 
         if (al.softStopRequested) {
           al.enabled = false;
@@ -588,7 +591,7 @@ export function createAutoLauncher({
           return { success: true, token: result.token, hash, stopped: true };
         }
 
-        if (al.limitMode === 'count' && al.targetCount > 0 && al.executedInRun >= al.targetCount) {
+        if (!manual && al.limitMode === 'count' && al.targetCount > 0 && al.executedInRun >= al.targetCount) {
           al.enabled = false;
           al.status = 'completed';
           al.nextRunAt = null;

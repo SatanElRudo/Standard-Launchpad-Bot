@@ -572,6 +572,49 @@ test('auto launcher controls: start, pause, soft_stop, hard_stop and count limit
   assert.equal(hardStatus.executedInRun, 0);
 });
 
+test('auto launcher manual executeNext(true) does not increment executedInRun', async () => {
+  const store = createMockStore();
+  const vault = createVault({ store });
+  vault.init('masterpass123');
+  const w1 = vault.createWallet('Deployer');
+
+  store.state.queue = [
+    { name: 'ManualToken1', symbol: 'MT1', country: 'us', wallet: w1.id },
+    { name: 'ManualToken2', symbol: 'MT2', country: 'us', wallet: w1.id },
+  ];
+
+  let launchedCount = 0;
+  const launcher = createAutoLauncher({
+    store,
+    vault,
+    executeLaunch: async () => {
+      launchedCount++;
+      return { hash: '0x' + String(launchedCount).repeat(64) };
+    },
+    inspectLaunch: async hash => ({
+      status: 'success',
+      hash,
+      token: '0x' + String(launchedCount).repeat(40),
+      name: `ManualToken${launchedCount}`,
+      symbol: `MT${launchedCount}`,
+    }),
+  });
+
+  launcher.configure({ limitMode: 'count', targetCount: 5 });
+  assert.equal(launcher.status().executedInRun, 0);
+
+  // Manual trigger (manual = true)
+  const res1 = await launcher.executeNext(true);
+  assert.equal(res1.success, true);
+  assert.equal(launcher.status().executedInRun, 0, 'executedInRun must NOT increment on manual execution');
+
+  // Automated trigger (manual = false)
+  const res2 = await launcher.executeNext(false);
+  assert.equal(res2.success, true);
+  assert.equal(launcher.status().executedInRun, 1, 'executedInRun must increment on automated execution');
+});
+
+
 
 
 
