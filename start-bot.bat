@@ -13,6 +13,11 @@ if %errorlevel% neq 0 (
   exit /b 1
 )
 
+if not exist "node_modules" (
+  echo Installiere Abhaengigkeiten (npm install)...
+  call npm install
+)
+
 if not exist "dist" (
   echo Baue Web-Frontend...
   call npm run build
