@@ -550,6 +550,7 @@ export function createAutoLauncher({
               curve: result.curve,
               token: result.token,
               country: item.country,
+              charterDropBps: item.charterDropBps,
               snipeOrders: effectiveSnipeOrders,
               antiFrontrun: true,
               prioGasGwei: al.prioGasGwei ?? '0.075',

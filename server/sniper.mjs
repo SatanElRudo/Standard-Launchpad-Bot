@@ -209,15 +209,16 @@ export async function executeMultiSnipe({
   curve,
   token = null,
   country = 'us',
+  charterDropBps = 1000,
   snipeOrders = [],
   vault,
   customClient = client,
   customWalletClient = null,
   antiFrontrun = true,
-  maxSlippagePct = 1.0,
-  expectedInitialSupply = 777777777777777777777777777n,
+  maxSlippagePct = 2.5,
+  expectedInitialSupply = null,
   phantomReserve = null,
-  virtualTokens = 1088888888888888888888888887n,
+  virtualTokens = null,
   referrer = null,
   prioGasGwei = null,
 } = {}) {
@@ -230,6 +231,9 @@ export async function executeMultiSnipe({
   const stockSymbol = isNativeEth ? 'ETH' : (stockInfo?.symbol || 'SPCX');
 
   const effectivePhantomReserve = phantomReserve ?? DEFAULT_PHANTOM_RESERVES[country] ?? 29317145057324793856n;
+  const dropBps = BigInt(Math.min(9999, Math.max(0, typeof charterDropBps === 'number' ? charterDropBps : 1000)));
+  const baseVirtualTokens = virtualTokens ?? (1088888888888888888888888887n * (10000n - dropBps) / 10000n);
+  const effectiveInitialSupply = expectedInitialSupply ?? 1000000000000000000000000000n;
 
   // 1. Pre-Flight Anti-Frontrun Check: verify no outsider has bought on the curve
   if (antiFrontrun && token && /^0x[0-9a-fA-F]{40}$/.test(token)) {
@@ -240,8 +244,8 @@ export async function executeMultiSnipe({
         functionName: 'balanceOf',
         args: [curve],
       });
-      if (currentCurveBal < expectedInitialSupply) {
-        const diff = expectedInitialSupply - currentCurveBal;
+      if (currentCurveBal < effectiveInitialSupply) {
+        const diff = effectiveInitialSupply - currentCurveBal;
         const msg = `Anti-Frontrun: Fremder Bot/Player hat bereits ${formatEther(diff)} Token vor uns auf der Curve gekauft. Snipe abgebrochen.`;
         return snipeOrders.map(order => {
           const w = vault.findWallet(order.walletId);
@@ -262,10 +266,45 @@ export async function executeMultiSnipe({
     }
   }
 
-  // 2. Calculate sequential minTokensOut for each order in our own group
-  const k = effectivePhantomReserve * virtualTokens;
+  // 2. On-Chain Simulation for exact tokensOut baseline if simulateContract is available
+  let simulatedBaseOut = 0n;
+  if (antiFrontrun && snipeOrders.length > 0 && typeof customClient?.simulateContract === 'function') {
+    try {
+      const firstOrder = snipeOrders[0];
+      const firstCleanAmount = String(firstOrder.amount ?? '').trim().replace(',', '.');
+      const firstAmountInWei = parseEther(firstCleanAmount);
+      const firstWallet = vault?.findWallet?.(firstOrder.walletId);
+      const simAccount = firstWallet?.address || zeroAddress;
+      const sim = await customClient.simulateContract({
+        account: simAccount,
+        address: deployment.router,
+        abi: routerAbi,
+        functionName: 'buyExactIn',
+        args: [
+          curve,
+          isNativeEth ? zeroAddress : (stockInfo?.address || zeroAddress),
+          firstAmountInWei,
+          0n,
+          0n,
+          simAccount,
+          zeroAddress,
+          { recipient: zeroAddress, bps: 0 },
+        ],
+      });
+      if (typeof sim?.result === 'bigint' && sim.result > 0n) {
+        simulatedBaseOut = sim.result;
+      }
+    } catch {
+      // Simulation failed or offline; use scaled mathematical curve below
+    }
+  }
+
+  // 3. Calculate sequential minTokensOut for each order in our own group
+  const k = effectivePhantomReserve * baseVirtualTokens;
   let runningReserve = effectivePhantomReserve;
-  const ordersWithLimits = snipeOrders.map(order => {
+  let firstFormulaExpectedOut = 0n;
+
+  const ordersWithLimits = snipeOrders.map((order, idx) => {
     const cleanAmount = String(order.amount ?? '').trim().replace(',', '.');
     let minTokensOut = 0n;
     if (antiFrontrun) {
@@ -274,15 +313,25 @@ export async function executeMultiSnipe({
       const nextReserve = runningReserve + amountAfterFee;
       const nextVirtualTokens = k / nextReserve;
       const curVirtualTokens = k / runningReserve;
-      const expectedOut = curVirtualTokens - nextVirtualTokens;
+      let expectedOut = curVirtualTokens - nextVirtualTokens;
       runningReserve = nextReserve;
+
+      if (idx === 0) {
+        firstFormulaExpectedOut = expectedOut;
+        if (simulatedBaseOut > 0n) {
+          expectedOut = simulatedBaseOut;
+        }
+      } else if (simulatedBaseOut > 0n && firstFormulaExpectedOut > 0n) {
+        expectedOut = simulatedBaseOut * expectedOut / firstFormulaExpectedOut;
+      }
+
       const slippageBps = BigInt(Math.max(0, Math.floor(maxSlippagePct * 100)));
       minTokensOut = expectedOut * (10000n - slippageBps) / 10000n;
     }
     return { ...order, amount: cleanAmount, minTokensOut };
   });
 
-  // 3. Execute all buys in order so sequential price progression and nonces match minTokensOut
+  // 4. Execute all buys in order so sequential price progression and nonces match minTokensOut
   const results = [];
   for (const order of ordersWithLimits) {
     try {
