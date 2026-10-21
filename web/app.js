@@ -113,7 +113,9 @@ function navigate(page, updateHistory = true) {
   } catch {}
 
   if (target === 'queue') {
-    void updateSnipeWallets(state.queue?.[0]?.country || 'us');
+    if (state?.queue) {
+      void updateSnipeWallets(state.queue[0]?.country || 'us');
+    }
   }
 }
 
@@ -334,7 +336,7 @@ $('#launch-snipe-enabled').onchange = e => {
 };
 $('#auto-launcher-snipe-enabled').onchange = e => {
   $('#auto-launcher-snipe-box').hidden = !e.target.checked;
-  if (e.target.checked) void updateSnipeWallets(state.queue?.[0]?.country || 'us');
+  if (e.target.checked && state?.queue) void updateSnipeWallets(state.queue[0]?.country || 'us');
 };
 if ($('#auto-snipe-select-all')) {
   $('#auto-snipe-select-all').onclick = () => {
@@ -2246,8 +2248,17 @@ if ($('#close-quick-unlock-btn')) {
   };
 }
 
-navigate(getInitialPage(), false);
-await refresh(); void terms();
+try {
+  navigate(getInitialPage(), false);
+} catch (e) {
+  console.warn('Initial navigation error:', e);
+}
+try {
+  await refresh();
+} catch (e) {
+  console.error('Initial refresh error:', e);
+}
+void terms();
 if (selectedProvider()) { walletSession.select(selectedProvider()); void walletSession.connect(true).catch(() => {}); }
 if (pendingHash) { show(`Gesendeter Launch ${pendingHash} wird weiter geprüft.`); void checkReceipt(); }
 setInterval(() => { void refresh(); void checkReceipt(); }, 3000);
