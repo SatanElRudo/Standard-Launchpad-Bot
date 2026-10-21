@@ -509,4 +509,45 @@ test('sniper executes sellExactIn for eth (WETH) requesting native ETH payout (z
   assert.equal(decoded.args[2], '0x0000000000000000000000000000000000000000');
 });
 
+test('sniper applies custom prioGasGwei setting to transactions', async () => {
+  const store = createMockStore();
+  const vault = createVault({ store });
+  vault.init('masterpass123');
+  const w1 = vault.createWallet('Prio Gas Wallet');
+  const curve = '0x' + '7'.repeat(40);
+
+  const sentTransactions = [];
+  const customWalletClient = {
+    async sendTransaction(params) {
+      sentTransactions.push(params);
+      return '0x' + 'e'.repeat(64);
+    },
+  };
+
+  const customClient = {
+    async getBalance() { return parseEther('10'); },
+    async getGasPrice() { return 25_000_000n; }, // 0.025 Gwei
+    async readContract({ functionName }) {
+      if (functionName === 'balanceOf') return parseEther('100');
+      if (functionName === 'allowance') return parseEther('10000');
+      return 0n;
+    },
+  };
+
+  await executeSnipeBuy({
+    curve,
+    country: 'eth',
+    walletId: w1.id,
+    amount: '0.01',
+    prioGasGwei: '0.15', // 0.15 Gwei
+    vault,
+    customClient,
+    customWalletClient,
+  });
+
+  assert.equal(sentTransactions.length, 1);
+  assert.equal(sentTransactions[0].gasPrice, 150_000_000n); // 0.15 Gwei = 150,000,000 wei
+});
+
+
 

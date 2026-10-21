@@ -212,6 +212,19 @@
                   <label>Standard-Betrag pro Wallet<input type="text" inputmode="decimal" id="snipe-default-amount" value="0.05" placeholder="0.05"></label>
                   <div class="field-align-top"><button type="button" id="apply-snipe-amount-btn" class="button secondary">Auf gewählte Wallets anwenden</button></div>
                 </div>
+                <div class="fields two" style="margin-top: 4px;">
+                  <label>⚡ Priority Gaspreis (Snipe Speed)
+                    <select id="launch-snipe-prio-gas-preset">
+                      <option value="0.05">Schnell (0.05 Gwei)</option>
+                      <option value="0.075" selected>Turbo / Anti-Frontrun (0.075 Gwei - Empfohlen)</option>
+                      <option value="0.15">Ultra Speed (0.15 Gwei)</option>
+                      <option value="custom">Benutzerdefiniert…</option>
+                    </select>
+                  </label>
+                  <label>Gaspreis (Gwei)
+                    <input type="text" inputmode="decimal" id="launch-snipe-prio-gas" value="0.075" placeholder="0.075">
+                  </label>
+                </div>
                 <div id="snipe-wallets-list" class="item-list"></div>
               </div>
               <div class="divider"></div>
@@ -340,6 +353,22 @@
                 <button type="button" id="auto-snipe-select-none" class="text-button">Keine</button>
               </div>
               <p class="field-help"><strong>🛡️ Anti-Frontrun Schutz:</strong> Bricht Käufe ab bzw. revertiert on-chain, wenn fremde Bots vor uns gekauft haben.</p>
+              <div class="fields two" style="margin-top: 10px;">
+                <label>⚡ Priority Gaspreis für Snipe
+                  <select id="auto-launcher-snipe-prio-gas-preset">
+                    <option value="0.05">Schnell (0.05 Gwei)</option>
+                    <option value="0.075" selected>Turbo / Anti-Frontrun (0.075 Gwei - Empfohlen)</option>
+                    <option value="0.15">Ultra Speed (0.15 Gwei)</option>
+                    <option value="custom">Benutzerdefiniert…</option>
+                  </select>
+                </label>
+                <label>Gaspreis (Gwei)
+                  <input type="text" inputmode="decimal" id="auto-launcher-snipe-prio-gas" value="0.075" placeholder="0.075">
+                </label>
+              </div>
+              <p class="field-help" style="margin-top: 4px;">
+                <strong>💡 Frontrun-Schutz:</strong> Fremde Bots bieten ca. 0.06 Gwei. Mit 0.075 Gwei oder höher wird dein Snipe vom Block-Validator prioritär vor anderen Bots ausgeführt. Kostet &lt; $0.03 Gas auf Robinhood Chain.
+              </p>
               <div id="auto-snipe-wallets-list" class="item-list"></div>
             </div>
             <div class="divider"></div>

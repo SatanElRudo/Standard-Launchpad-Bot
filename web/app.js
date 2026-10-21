@@ -400,6 +400,25 @@ $('#apply-snipe-amount-btn').onclick = () => {
   show(`Betrag ${val} auf alle Wallets angewendet.`);
 };
 
+function setupPrioGasControls(presetSelector, inputSelector) {
+  const presetEl = $(presetSelector);
+  const inputEl = $(inputSelector);
+  if (!presetEl || !inputEl) return;
+  presetEl.onchange = () => {
+    if (presetEl.value !== 'custom') {
+      inputEl.value = presetEl.value;
+    }
+  };
+  inputEl.oninput = () => {
+    const val = inputEl.value.trim().replace(',', '.');
+    const match = Array.from(presetEl.options).some(opt => opt.value === val);
+    presetEl.value = match ? val : 'custom';
+  };
+}
+
+setupPrioGasControls('#launch-snipe-prio-gas-preset', '#launch-snipe-prio-gas');
+setupPrioGasControls('#auto-launcher-snipe-prio-gas-preset', '#auto-launcher-snipe-prio-gas');
+
 async function updateSnipeWallets(country = 'us') {
   if (!vaultStatus.unlocked) {
     const lockedMsg = `
@@ -608,7 +627,8 @@ $('#launch-form').onsubmit = e => { e.preventDefault(); busy(e.submitter, async 
   const revision = walletSession.snapshot().revision;
   const result = await post('/prepare', draft);
   if (!isVaultWallet && walletSession.snapshot().revision !== revision) throw new Error('Wallet oder Netzwerk hat sich während der Prüfung geändert. Bitte erneut prüfen.');
-  prepared = { ...result, snipeOrders, monitorConfig };
+  const prioGasGwei = $('#launch-snipe-prio-gas')?.value?.trim().replace(',', '.') || '0.075';
+  prepared = { ...result, snipeOrders, monitorConfig, prioGasGwei };
 
   const snipeSummary = snipeOrders.length
     ? `<dt>Erstkauf (Snipe)</dt><dd>Aktiv (${snipeOrders.length} Wallets mit $${esc(deployment.stocks[draft.country].symbol)})</dd>`
@@ -677,6 +697,7 @@ $('#send-vault-launch').onclick = () => busy($('#send-vault-launch'), async () =
     walletId: vWallet.id,
     snipeOrders: prepared.snipeOrders || [],
     monitor: prepared.monitorConfig,
+    prioGasGwei: prepared.prioGasGwei || '0.075',
   };
   const res = await post('/vault/launch', payload);
   pendingHash = res.hash;
@@ -921,6 +942,7 @@ $('#auto-launcher-form').onsubmit = e => { e.preventDefault(); busy(e.submitter,
   };
 
   const defaultReferrer = $('#auto-launcher-referrer')?.value?.trim() || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
+  const prioGasGwei = $('#auto-launcher-snipe-prio-gas')?.value?.trim().replace(',', '.') || '0.075';
 
   await post('/auto-launcher/config', {
     enabled,
@@ -933,6 +955,7 @@ $('#auto-launcher-form').onsubmit = e => { e.preventDefault(); busy(e.submitter,
     rotationWalletIds,
     pairAmounts,
     snipeOrders,
+    prioGasGwei,
     defaultMonitor,
     defaultReferrer,
   });
@@ -1810,6 +1833,16 @@ async function refresh() {
 
         if ($('#auto-launcher-referrer')) {
           $('#auto-launcher-referrer').value = al.defaultReferrer || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
+        }
+
+        if ($('#auto-launcher-snipe-prio-gas')) {
+          const pg = al.prioGasGwei || '0.075';
+          $('#auto-launcher-snipe-prio-gas').value = pg;
+          const presetEl = $('#auto-launcher-snipe-prio-gas-preset');
+          if (presetEl) {
+            const match = Array.from(presetEl.options).some(opt => opt.value === pg);
+            presetEl.value = match ? pg : 'custom';
+          }
         }
 
         $('#auto-wallet-mode-rotate').checked = isRotate;

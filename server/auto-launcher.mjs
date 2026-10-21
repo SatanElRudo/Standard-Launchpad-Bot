@@ -31,6 +31,7 @@ export function createAutoLauncher({
     lastSuccess: null,
     inFlightTx: null,
     snipeOrders: [],
+    prioGasGwei: '0.075',
     defaultReferrer: '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7',
     pairAmounts: {
       us: '0.05',
@@ -58,6 +59,7 @@ export function createAutoLauncher({
   state.autoLauncher.rotationWalletIds ??= [];
   state.autoLauncher.rotationIndex ??= 0;
   state.autoLauncher.defaultReferrer ??= '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
+  state.autoLauncher.prioGasGwei ??= '0.075';
   state.autoLauncher.pairAmounts ??= {
     us: '0.05',
     eth: '0.005',
@@ -145,6 +147,7 @@ export function createAutoLauncher({
       countdownSeconds,
       queueLength: state.queue?.length ?? 0,
       defaultReferrer: al.defaultReferrer || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7',
+      prioGasGwei: al.prioGasGwei ?? '0.075',
       snipeOrders: al.snipeOrders ?? [],
       pairAmounts: al.pairAmounts ?? { us: '0.05', eth: '0.005', cn: '0.1', kr: '0.1' },
       defaultMonitor: al.defaultMonitor ?? { enabled: true },
@@ -234,8 +237,11 @@ export function createAutoLauncher({
     return status();
   }
 
-  function configure({ enabled, intervalMinutes, intervalVarianceSeconds, limitMode, targetCount, walletMode, defaultWalletId, rotationWalletIds, snipeOrders, pairAmounts, defaultMonitor, defaultReferrer }) {
+  function configure({ enabled, intervalMinutes, intervalVarianceSeconds, limitMode, targetCount, walletMode, defaultWalletId, rotationWalletIds, snipeOrders, pairAmounts, defaultMonitor, defaultReferrer, prioGasGwei }) {
     const al = state.autoLauncher;
+    if (typeof prioGasGwei === 'string' || typeof prioGasGwei === 'number') {
+      al.prioGasGwei = String(prioGasGwei).trim().replace(',', '.');
+    }
     if (typeof defaultReferrer === 'string') {
       al.defaultReferrer = defaultReferrer.trim();
     }
@@ -473,6 +479,7 @@ export function createAutoLauncher({
               country: item.country,
               snipeOrders: effectiveSnipeOrders,
               antiFrontrun: true,
+              prioGasGwei: al.prioGasGwei ?? '0.075',
               referrer: effectiveRef,
               vault,
             });
