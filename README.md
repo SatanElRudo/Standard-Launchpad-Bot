@@ -12,13 +12,13 @@ Bevor du den Bot startest, stelle sicher, dass folgende Software auf deinem Comp
 
 | Voraussetzung | Mindestversion | Zweck | Download-Link |
 | :--- | :---: | :--- | :--- |
-| **Node.js** | **v20.0.0+** (LTS empfohlen) | JavaScript-Runtime für Server & Bot-Logik | [nodejs.org](https://nodejs.org/) |
+| **Node.js** | **v22.5.0+** oder **v24+** (LTS) | JavaScript-Runtime mit nativer `node:sqlite`-Unterstützung | [nodejs.org](https://nodejs.org/) |
 | **Git** | Aktuell | Quellcode klonen und Updates beziehen | [git-scm.com](https://git-scm.com/) |
 | **Webbrowser** | Aktuell | Benutzeroberfläche (Chrome, Brave, Edge, Firefox) | – |
 | **Robinhood Chain Wallet** | – | Für Gas und Launch-Gebühren (0.0005 ETH pro Token) | z. B. MetaMask / Rabby |
 
 > [!IMPORTANT]
-> **Windows-Installation von Node.js:** Achte bei der Installation von Node.js darauf, dass die Option **„Add to PATH“** aktiviert ist. Starte dein Terminal oder die Eingabeaufforderung nach der Installation einmal neu, damit der Befehl `node` im System erkannt wird.
+> **Windows-Installation von Node.js:** Achte bei der Installation von Node.js darauf, dass die Option **„Add to PATH“** aktiviert ist. Node.js v22.5+ oder v24+ wird benötigt, da der Bot die performante integrierte SQLite-Engine von Node.js nutzt. Starte dein Terminal nach der Installation einmal neu.
 
 ---
 
@@ -99,9 +99,11 @@ Der Bot unterstützt alle Handelspaare von Standard Reserve nativ:
 * 🇰🇷 **Südkorea (`kr`):** `$SKHY` (`0x84CAb63bc87912E71ad199ff14A0bA45de68FeF8`)
 
 ### 5. 🚀 Paralleler Erstkauf (Snipe)
-* Bis zu 10 Tresor-Wallets können beim Launch parallel als Erstkäufer einsteigen.
-* **Währungsgerechte Beträge:** Für jedes Handelspaar (ETH, SPCX, BABA, SKHY) können eigene Beträge hinterlegt werden (z. B. 0.0042 ETH bzw. 0.05 SPCX).
+* **Bis zu 50 Tresor-Wallets:** Unterstützt bis zu 50 Wallets gleichzeitig für den Sofortkauf direkt nach dem Launch.
+* **Währungsgerechte Beträge:** Für jedes Handelspaar (ETH, SPCX, BABA, SKHY) können eigene Standardbeträge hinterlegt werden (z. B. 0.005 ETH bzw. 0.05 SPCX).
+* **On-Chain Slippage & Bonding-Curve-Schutz:** Jede Wallet kauft sequentiell mit im Vorfeld berechnetem `minTokensOut`-Schutz, um Frontrunning durch fremde Bots zu verhindern.
 * **Automatisches Approval:** Benötigte ERC-20-Freigaben für den Standard Reserve Router werden vollautomatisch vor dem Kauf erteilt.
+* **Fehler-Isolierung:** Schlägt der Kauf einer Wallet fehl (z. B. wegen fehlendem Guthaben), wird der Launch nicht blockiert und der fehlgeschlagene Kauf wird im PnL nicht fälschlicherweise als Ausgabe gebucht.
 
 ### 6. 📈 Auto-Monitor & TP/SL Auto-Exit
 * Unmittelbar nach dem Launch wird ein Live-Monitor für die Bonding-Curve erstellt.
@@ -122,12 +124,14 @@ Der Bot unterstützt alle Handelspaare von Standard Reserve nativ:
 
 ### 8. 📊 Dashboard, PnL & Punkte-Auswertung
 * **Live-Punkte von Standard Reserve:** Bezieht die offiziellen Season-1-Punkte direkt von der Standard Reserve API (5,07 Punkte pro gehandeltem Dollar + Deployer-Anteile).
+* **Multi-Currency PnL:** Exakte Trennung nach Währungen (`SPCX`, `ETH`, `BABA`, `SKHY`). Synthetische Stock-Tokens werden mit $1,00 USD bewertet, ETH zum tagesaktuellen Marktkurs ($2.600 USD).
 * **Dynamische Punktwert-Szenarien:**
   * 🛡️ **Garantiert (65% Incentives):** ~\$0,01703 / Punkt (Ausschüttung an alle Teilnehmer)
   * ⚖️ **100% Ø Pool:** ~\$0,02619 / Punkt (Gesamter Reward-Pool gemittelt)
   * 🏆 **Sieger-Team US:** ~\$0,03290 / Punkt (Jackpot-Bonus für das führende US-Team)
   * ✍️ **Manuell:** Beliebiger Schätzwert pro Punkt
 * **Vollständiges PnL:** Verrechnet Launch-Gebühr, Snipe-Einsatz, Verkaufserlös, Creator-Gebühren und den Dollar-Gegenwert der gesammelten Pilotenpunkte zu einem **effektiven Netto-PnL**.
+* **Launch-Zähler:** Der Zähler für geplante automatische Launches zählt nur im kontinuierlichen Automatikmodus hoch. Ein manuelles Ausführen (`Nächsten ausführen ↗`) lässt den geplanten Auto-Limit-Zähler unberührt.
 * **Saubere Creator-Fees:** Weist unbeanspruchte Gebühren exakt nach Währung aus (z. B. `0.0098 SPCX + 0.000346 ETH`) und ermöglicht das Claimen mit automatischer Konvertierung in ETH.
 
 ---

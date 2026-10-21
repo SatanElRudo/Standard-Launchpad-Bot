@@ -8,7 +8,7 @@ echo.
 where node >nul 2>nul
 if %errorlevel% neq 0 (
   echo [FEHLER] Node.js ist nicht installiert oder nicht im PATH gefunden!
-  echo Bitte installiere Node.js v20+ von https://nodejs.org/
+  echo Bitte installiere Node.js v22+ (LTS) von https://nodejs.org/
   pause
   exit /b 1
 )
