@@ -185,8 +185,16 @@ export async function inspectLaunch(hash) {
     for (const abi of abis) {
       try {
         const event = decodeEventLog({ abi, data: log.data, topics: log.topics });
-        if (event.eventName === 'Launched') return { status: 'success', hash, token: event.args.token, curve: event.args.curve,
-          wallet: transaction.from, name: decoded.args[0].name, symbol: decoded.args[0].symbol, confirmedAt: Date.now() };
+        if (event.eventName === 'Launched') {
+          const stockAddr = decoded.args[0]?.stock?.toLowerCase();
+          const stockEntry = Object.entries(deployment.stocks).find(([c, info]) => info.address.toLowerCase() === stockAddr);
+          const country = stockEntry ? stockEntry[0] : 'us';
+          return {
+            status: 'success', hash, token: event.args.token, curve: event.args.curve,
+            wallet: transaction.from, name: decoded.args[0].name, symbol: decoded.args[0].symbol,
+            country, confirmedAt: Date.now()
+          };
+        }
       } catch {}
     }
   }

@@ -1360,9 +1360,19 @@ function renderDashboard(state, feeData) {
       const punkteWertUsd = eigenePunkte * effectivePointVal;
       const effPnlUsd = onchainPnlUsd + punkteWertUsd;
 
-      const isSpcx = l.snipeCurrency === 'SPCX' || l.country === 'us';
-      const snipeLabel = (l.snipeStock > 0) ? `${l.snipeStock.toFixed(2)} SPCX` : (snipeEth > 0 ? `${snipeEth.toFixed(4)} ETH` : '0 ETH');
-      const sellLabel = (l.sellStock > 0) ? `${l.sellStock.toFixed(2)} SPCX` : (sellEth > 0 ? `${sellEth.toFixed(4)} ETH` : (snipeEth > 0 || l.snipeStock > 0 ? 'Moonbag' : '0 ETH'));
+      const currency = l.snipeCurrency || l.currency || (l.country === 'eth' ? 'ETH' : (deployment.stocks[l.country]?.symbol || 'SPCX'));
+      const isEth = currency === 'ETH' || currency === 'WETH';
+      const snipeAmt = isEth ? Number(l.snipeEth || 0) : Number(l.snipeStock || 0);
+      const sellAmt = isEth ? Number(l.sellEth || 0) : Number(l.sellStock || 0);
+      const hasSnipeError = Array.isArray(l.snipeResults) && l.snipeResults.some(s => s.status === 'error' || s.status?.startsWith('reverted'));
+
+      const snipeLabel = (snipeAmt > 0)
+        ? `${snipeAmt.toFixed(isEth ? 4 : 2)} ${esc(currency)}`
+        : (hasSnipeError ? '<span class="error" title="Snipe-Kauf nicht ausgeführt">Fehlgeschlagen</span>' : `0 ${esc(currency)}`);
+
+      const sellLabel = (sellAmt > 0)
+        ? `${sellAmt.toFixed(isEth ? 4 : 2)} ${esc(currency)}`
+        : (snipeAmt > 0 ? 'Moonbag' : `0 ${esc(currency)}`);
 
       return `
         <div class="item dash-launch-item">
@@ -1370,6 +1380,7 @@ function renderDashboard(state, feeData) {
             <div class="dash-token-row-header">
               <strong class="dash-token-title">${esc(l.name)}</strong>
               <span class="pill pill-mini">$${esc(l.symbol)}</span>
+              <span class="pill pill-mini" title="Handelspaar">${esc(currency)}</span>
               ${hasFees ? `<span class="pill pill-mini pill-active">💰 ${esc(formattedFee)} ${esc(feeSymbol)}</span>` : ''}
             </div>
 

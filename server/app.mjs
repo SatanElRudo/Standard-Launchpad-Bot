@@ -555,9 +555,13 @@ export function createApp({
         }
 
         const enrichedLaunches = await Promise.all((state.launches || []).map(async l => {
+          const matchingMon = (state.monitors || []).find(m => (m.token || '').toLowerCase() === (l.token || '').toLowerCase());
+          const country = l.country || matchingMon?.country || ((l.hash === '0xee928cfd534d22d2dec01cd0c0f4e4aad04ea8c778507a73cbb6b82311bc0e93' || l.hash === '0x1257cabc11bb3146ce9c6a941609323fdb346b4ae3538a8cb4bc612ed0167505') ? 'eth' : 'us');
+          const stockInfo = deployment.stocks[country];
+          const defaultCurrency = (country === 'eth' || Boolean(stockInfo?.native)) ? 'ETH' : (stockInfo?.symbol || 'SPCX');
+
           const pts = await getLiveTokenPoints(l.token, vaultMap);
 
-          const matchingMon = (state.monitors || []).find(m => (m.token || '').toLowerCase() === (l.token || '').toLowerCase());
           const snipeResults = (Array.isArray(l.snipeResults) && l.snipeResults.length)
             ? l.snipeResults
             : (matchingMon?.purchases || []);
@@ -581,32 +585,46 @@ export function createApp({
           let snipeEth = 0;
           let snipeUsd = 0;
           let snipeStock = 0;
-          let snipeCurrency = l.country === 'us' ? 'SPCX' : 'ETH';
+          let snipeCurrency = defaultCurrency;
+          let hasSnipeSuccess = false;
+
           for (const s of (snipeResults || [])) {
+            // ONLY count successful snipe purchases (skip failed or aborted snipes)
+            if (s.status !== 'success') continue;
+            hasSnipeSuccess = true;
             const amt = Number(s.amount) || 0;
-            if (s.currency === 'SPCX') {
-              snipeCurrency = 'SPCX';
-              snipeStock += amt;
-              snipeUsd += amt;
-              snipeEth += amt / 2600;
-            } else {
+            const curr = s.currency || defaultCurrency;
+            snipeCurrency = curr;
+            if (curr === 'ETH' || curr === 'WETH') {
               snipeEth += amt;
               snipeUsd += amt * 2600;
+            } else {
+              // Synthetic stock tokens: SPCX, BABA, SKHY ($1.00 USD peg)
+              snipeStock += amt;
+              snipeUsd += amt * 1.0;
+              snipeEth += amt / 2600;
             }
           }
 
           let sellEth = 0;
           let sellUsd = 0;
           let sellStock = 0;
+          let hasSellSuccess = false;
+
           for (const s of (sellResults || [])) {
-            const amt = Number(s.payoutAmount || s.ethReceived) || 0;
-            if (s.currency === 'SPCX') {
-              sellStock += amt;
-              sellUsd += amt;
-              sellEth += amt / 2600;
-            } else {
-              sellEth += amt;
-              sellUsd += amt * 2600;
+            if (s.status !== 'success' && s.status !== 'kept_best_entry') continue;
+            if (s.status === 'success') {
+              hasSellSuccess = true;
+              const amt = Number(s.payoutAmount || s.ethReceived) || 0;
+              const curr = s.currency || defaultCurrency;
+              if (curr === 'ETH' || curr === 'WETH') {
+                sellEth += amt;
+                sellUsd += amt * 2600;
+              } else {
+                sellStock += amt;
+                sellUsd += amt * 1.0;
+                sellEth += amt / 2600;
+              }
             }
           }
 
@@ -616,17 +634,21 @@ export function createApp({
             snipeUsd = 0.0042 * 2600;
             sellEth = 0.004022;
             sellUsd = 0.004022 * 2600;
+            hasSnipeSuccess = true;
+            hasSellSuccess = true;
           } else if (l.hash === '0x1257cabc11bb3146ce9c6a941609323fdb346b4ae3538a8cb4bc612ed0167505') {
             snipeEth = 0.0042;
             snipeUsd = 0.0042 * 2600;
             sellEth = 0.004115;
             sellUsd = 0.004115 * 2600;
+            hasSnipeSuccess = true;
+            hasSellSuccess = true;
           }
 
           const feeItem = byCurve.find(c => c.curve?.toLowerCase() === l.curve?.toLowerCase());
           const feeAmount = feeItem ? Number(feeItem.balanceFormatted || feeItem.balanceEth) : (l.hash === '0xee928cfd534d22d2dec01cd0c0f4e4aad04ea8c778507a73cbb6b82311bc0e93' ? 0.00003 : 0);
-          const feeSymbol = feeItem?.stockSymbol || (l.country === 'us' ? 'SPCX' : 'ETH');
-          const isEthFee = feeSymbol === 'ETH' || feeItem?.isNativeEth || l.country === 'eth';
+          const feeSymbol = feeItem?.stockSymbol || defaultCurrency;
+          const isEthFee = feeSymbol === 'ETH' || feeSymbol === 'WETH' || feeItem?.isNativeEth || country === 'eth';
 
           const feesUsd = isEthFee ? (feeAmount * 2600) : (feeAmount * 1.0);
           const feesEth = isEthFee ? feeAmount : (feesUsd / 2600);
@@ -639,17 +661,21 @@ export function createApp({
 
           return {
             ...l,
-            deployerPoints: pts?.deployerPoints || 0,
-            pilotPoints: pts?.pilotPoints || 0,
-            buyerPoints: pts?.buyerPoints || [],
-            launchFeeEth,
+            country,
+            currency: defaultCurrency,
+            snipeCurrency,
+            snipeAmount: (snipeCurrency === 'ETH' || snipeCurrency === 'WETH') ? snipeEth : snipeStock,
+            sellAmount: (snipeCurrency === 'ETH' || snipeCurrency === 'WETH') ? sellEth : sellStock,
             snipeEth,
             sellEth,
             snipeUsd,
             sellUsd,
             snipeStock,
             sellStock,
-            snipeCurrency,
+            deployerPoints: pts?.deployerPoints || 0,
+            pilotPoints: pts?.pilotPoints || 0,
+            buyerPoints: pts?.buyerPoints || [],
+            launchFeeEth,
             feeAmount,
             feeSymbol,
             feesEth,
@@ -657,7 +683,7 @@ export function createApp({
             feesUsd,
             onchainPnlUsd,
             netPnlEth,
-            hasPnlData: Boolean(snipeEth || sellEth || snipeStock || sellStock),
+            hasPnlData: Boolean(hasSnipeSuccess || hasSellSuccess || feeAmount > 0),
           };
         }));
 

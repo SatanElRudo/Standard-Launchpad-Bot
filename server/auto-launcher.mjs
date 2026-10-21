@@ -510,6 +510,7 @@ export function createAutoLauncher({
             console.warn('[AutoLauncher] CSV update error:', e.message);
           }
         }
+        result.country = item.country || result.country || 'us';
         if (!state.launches.some(l => l.hash === hash)) {
           state.launches.unshift(result);
         }
