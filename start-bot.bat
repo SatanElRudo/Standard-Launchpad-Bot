@@ -1,5 +1,4 @@
 @echo off
-chcp 65001 >nul
 title Standard Launchpad Bot Console
 echo ========================================================
 echo   Standard Launchpad Bot - Startskript
@@ -19,10 +18,10 @@ if not exist "dist" (
   call npm run build
 )
 
-start "" cmd /c "timeout /t 2 /nobreak >nul && start http://127.0.0.1:4317"
+start "" cmd /c "ping -n 3 127.0.0.1 >nul && start http://127.0.0.1:4317"
 
 echo Starte Server auf http://127.0.0.1:4317 ...
-echo Drücke Strg+C zum Beenden oder führe stop-bot.bat aus.
+echo Druecke Strg+C zum Beenden oder fuehre stop-bot.bat aus.
 echo.
 node server/index.mjs
 pause
