@@ -21,12 +21,14 @@ export function createAutoLauncher({
     executedInRun: 0,
     softStopRequested: false,
     walletMode: 'single', // 'single' | 'rotate'
+    useCsvWallet: false,
     defaultWalletId: '',
     rotationWalletIds: [],
     rotationIndex: 0,
     status: 'idle',
     lastRunAt: null,
     nextRunAt: null,
+    remainingMsOnPause: null,
     lastError: null,
     lastSuccess: null,
     inFlightTx: null,
@@ -56,6 +58,8 @@ export function createAutoLauncher({
   };
   state.autoLauncher.intervalVarianceSeconds ??= 0;
   state.autoLauncher.walletMode ??= 'single';
+  state.autoLauncher.useCsvWallet ??= false;
+  state.autoLauncher.remainingMsOnPause ??= null;
   state.autoLauncher.rotationWalletIds ??= [];
   state.autoLauncher.rotationIndex ??= 0;
   state.autoLauncher.defaultReferrer ??= '0x0000000000000000000000000000000000000000';
@@ -95,6 +99,10 @@ export function createAutoLauncher({
 
   function peekNextWallet() {
     const al = state.autoLauncher;
+    if (al.useCsvWallet && state.queue?.[0]?.wallet) {
+      const found = vault.findWallet(state.queue[0].wallet);
+      if (found) return { id: found.id, label: found.label, address: found.address, index: 0 };
+    }
     if (al.walletMode === 'rotate' && Array.isArray(al.rotationWalletIds) && al.rotationWalletIds.length > 0) {
       const list = al.rotationWalletIds;
       let idx = typeof al.rotationIndex === 'number' ? al.rotationIndex : 0;
@@ -112,6 +120,10 @@ export function createAutoLauncher({
       const def = vault.findWallet(al.defaultWalletId);
       if (def) return { id: def.id, label: def.label, address: def.address, index: 0 };
     }
+    if (state.queue?.[0]?.wallet) {
+      const found = vault.findWallet(state.queue[0].wallet);
+      if (found) return { id: found.id, label: found.label, address: found.address, index: 0 };
+    }
     const all = vault.getWallets();
     if (all.length === 1) return { id: all[0].id, label: all[0].label, address: all[0].address, index: 0 };
     return null;
@@ -123,6 +135,8 @@ export function createAutoLauncher({
     let countdownSeconds = 0;
     if (al.enabled && al.nextRunAt && al.nextRunAt > now) {
       countdownSeconds = Math.round((al.nextRunAt - now) / 1000);
+    } else if (typeof al.remainingMsOnPause === 'number' && al.remainingMsOnPause > 0) {
+      countdownSeconds = Math.round(al.remainingMsOnPause / 1000);
     }
     return {
       enabled: Boolean(al.enabled),
@@ -133,12 +147,14 @@ export function createAutoLauncher({
       executedInRun: al.executedInRun ?? 0,
       softStopRequested: Boolean(al.softStopRequested),
       walletMode: al.walletMode ?? 'single',
+      useCsvWallet: Boolean(al.useCsvWallet),
       defaultWalletId: al.defaultWalletId ?? '',
       rotationWalletIds: Array.isArray(al.rotationWalletIds) ? al.rotationWalletIds : [],
       rotationIndex: al.rotationIndex ?? 0,
       nextWallet: peekNextWallet(),
       status: inProgress ? (al.softStopRequested ? 'soft_stopping' : 'running') : al.status ?? 'idle',
       nextRunAt: al.nextRunAt ?? null,
+      remainingMsOnPause: al.remainingMsOnPause ?? null,
       lastRunAt: al.lastRunAt ?? null,
       inProgress,
       lastError: al.lastError ?? null,
@@ -156,25 +172,62 @@ export function createAutoLauncher({
 
   function control({ action } = {}) {
     const al = state.autoLauncher;
-    if (action === 'start') {
+    if (action === 'start' || action === 'resume') {
+      if (al.enabled) {
+        // Toggle guard: already running, ignore redundant start
+        return status();
+      }
+      const wasPaused = (al.status === 'paused' || al.status === 'paused_insufficient_funds' || al.status === 'paused_vault_locked' || (typeof al.remainingMsOnPause === 'number' && al.remainingMsOnPause > 0));
+
       al.enabled = true;
       al.softStopRequested = false;
-      al.executedInRun = 0;
       al.status = 'idle';
       al.lastError = null;
-      al.nextRunAt = Date.now() + 2000;
-      state.alerts.unshift({
-        id: randomUUID(),
-        category: 'info',
-        name: 'Auto-Launcher gestartet ▶️',
-        message: al.limitMode === 'count'
-          ? `Automatische Queue gestartet: Ziel = ${al.targetCount} Token(s). Nächster Start in Kürze.`
-          : 'Automatische Queue gestartet: Abarbeitung aller Token aktiv. Nächster Start in Kürze.',
-        at: Date.now(),
-        token: '0x0000000000000000000000000000000000000000',
-        metrics: {},
-      });
+
+      if (wasPaused) {
+        // Fortsetzen: Keep executedInRun and restore remaining countdown
+        const delay = (typeof al.remainingMsOnPause === 'number' && al.remainingMsOnPause > 0)
+          ? al.remainingMsOnPause
+          : 2000;
+        al.nextRunAt = Date.now() + delay;
+        al.remainingMsOnPause = null;
+        state.alerts.unshift({
+          id: randomUUID(),
+          category: 'info',
+          name: 'Auto-Launcher fortgesetzt ▶️',
+          message: `Queue fortgesetzt (${al.executedInRun}/${al.limitMode === 'count' ? al.targetCount : '∞'} ausgeführt). Nächster Start in ${Math.round(delay / 1000)} s.`,
+          at: Date.now(),
+          token: '0x0000000000000000000000000000000000000000',
+          metrics: {},
+        });
+      } else {
+        // Fresh start from stopped: reset executedInRun
+        al.executedInRun = 0;
+        al.remainingMsOnPause = null;
+        al.nextRunAt = Date.now() + 2000;
+        state.alerts.unshift({
+          id: randomUUID(),
+          category: 'info',
+          name: 'Auto-Launcher gestartet ▶️',
+          message: al.limitMode === 'count'
+            ? `Automatische Queue gestartet: Ziel = ${al.targetCount} Token(s). Nächster Start in Kürze.`
+            : 'Automatische Queue gestartet: Abarbeitung aller Token aktiv. Nächster Start in Kürze.',
+          at: Date.now(),
+          token: '0x0000000000000000000000000000000000000000',
+          metrics: {},
+        });
+      }
     } else if (action === 'pause') {
+      if (!al.enabled && al.status === 'paused') {
+        // Toggle guard: already paused, ignore redundant pause
+        return status();
+      }
+      const now = Date.now();
+      if (al.nextRunAt && al.nextRunAt > now) {
+        al.remainingMsOnPause = al.nextRunAt - now;
+      } else if (al.remainingMsOnPause == null) {
+        al.remainingMsOnPause = 0;
+      }
       al.enabled = false;
       al.softStopRequested = false;
       al.status = 'paused';
@@ -183,7 +236,7 @@ export function createAutoLauncher({
         id: randomUUID(),
         category: 'info',
         name: 'Auto-Launcher pausiert ⏸️',
-        message: `Queue pausiert (${al.executedInRun} ausgeführt). Kann jederzeit fortgesetzt werden.`,
+        message: `Queue pausiert (${al.executedInRun} ausgeführt, Restzeit: ${Math.round((al.remainingMsOnPause || 0) / 1000)} s). Kann jederzeit fortgesetzt werden.`,
         at: Date.now(),
         token: '0x0000000000000000000000000000000000000000',
         metrics: {},
@@ -207,6 +260,7 @@ export function createAutoLauncher({
         al.softStopRequested = false;
         al.status = 'stopped';
         al.nextRunAt = null;
+        al.remainingMsOnPause = null;
         state.alerts.unshift({
           id: randomUUID(),
           category: 'info',
@@ -222,6 +276,7 @@ export function createAutoLauncher({
       al.softStopRequested = false;
       al.status = 'stopped';
       al.nextRunAt = null;
+      al.remainingMsOnPause = null;
       al.executedInRun = 0;
       state.alerts.unshift({
         id: randomUUID(),
@@ -237,7 +292,7 @@ export function createAutoLauncher({
     return status();
   }
 
-  function configure({ enabled, intervalMinutes, intervalVarianceSeconds, limitMode, targetCount, walletMode, defaultWalletId, rotationWalletIds, snipeOrders, pairAmounts, defaultMonitor, defaultReferrer, prioGasGwei }) {
+  function configure({ enabled, intervalMinutes, intervalVarianceSeconds, limitMode, targetCount, walletMode, useCsvWallet, defaultWalletId, rotationWalletIds, snipeOrders, pairAmounts, defaultMonitor, defaultReferrer, prioGasGwei }) {
     const al = state.autoLauncher;
     if (typeof prioGasGwei === 'string' || typeof prioGasGwei === 'number') {
       al.prioGasGwei = String(prioGasGwei).trim().replace(',', '.');
@@ -259,6 +314,9 @@ export function createAutoLauncher({
     }
     if (walletMode === 'single' || walletMode === 'rotate') {
       al.walletMode = walletMode;
+    }
+    if (typeof useCsvWallet === 'boolean') {
+      al.useCsvWallet = useCsvWallet;
     }
     if (typeof defaultWalletId === 'string') {
       al.defaultWalletId = defaultWalletId.trim();
@@ -303,6 +361,14 @@ export function createAutoLauncher({
 
   function resolveWallet(item) {
     const al = state.autoLauncher;
+
+    // 1. Explicit CSV override (only if user explicitly checked useCsvWallet):
+    if (al.useCsvWallet && item.wallet) {
+      const found = vault.findWallet(item.wallet);
+      if (found) return { wallet: found, advance: null };
+    }
+
+    // 2. Webinterface strategy (PRIORITY 1 by default):
     if (al.walletMode === 'rotate' && Array.isArray(al.rotationWalletIds) && al.rotationWalletIds.length > 0) {
       const list = al.rotationWalletIds;
       let idx = typeof al.rotationIndex === 'number' ? al.rotationIndex : 0;
@@ -323,14 +389,17 @@ export function createAutoLauncher({
       }
     }
 
+    if (al.defaultWalletId) {
+      const def = vault.findWallet(al.defaultWalletId);
+      if (def) return { wallet: def, advance: null };
+    }
+
+    // 3. Fallbacks if no wallet was configured in web interface:
     if (item.wallet) {
       const found = vault.findWallet(item.wallet);
       if (found) return { wallet: found, advance: null };
     }
-    if (state.autoLauncher.defaultWalletId) {
-      const def = vault.findWallet(state.autoLauncher.defaultWalletId);
-      if (def) return { wallet: def, advance: null };
-    }
+
     const all = vault.getWallets();
     if (all.length === 1) return { wallet: all[0], advance: null };
     return { wallet: null, advance: null };
@@ -346,6 +415,10 @@ export function createAutoLauncher({
       return { skipped: 'Queue ist leer' };
     }
     if (!vault.isUnlocked()) {
+      const now = Date.now();
+      if (al.nextRunAt && al.nextRunAt > now) {
+        al.remainingMsOnPause = al.nextRunAt - now;
+      }
       al.enabled = false;
       al.status = 'paused_vault_locked';
       al.lastError = 'Queue angehalten: Der Tresor ist gesperrt. Bitte mit Master-Passwort entsperren und Queue fortsetzen.';
@@ -625,6 +698,10 @@ export function createAutoLauncher({
     } catch (err) {
       const isFundsError = /nicht genug eth|insufficient funds|exceeds balance/i.test(err.message);
       if (isFundsError) {
+        const now = Date.now();
+        if (al.nextRunAt && al.nextRunAt > now) {
+          al.remainingMsOnPause = al.nextRunAt - now;
+        }
         al.enabled = false;
         al.status = 'paused_insufficient_funds';
         al.lastError = `Queue angehalten: Wallet ${wallet.label} (${wallet.address}) hat nicht genügend ETH für Launch-Gebühr und Gas.`;
@@ -685,6 +762,10 @@ export function createAutoLauncher({
     const al = state.autoLauncher;
     if (!al.enabled) return;
     if (!vault.isUnlocked()) {
+      const now = Date.now();
+      if (al.nextRunAt && al.nextRunAt > now) {
+        al.remainingMsOnPause = al.nextRunAt - now;
+      }
       al.enabled = false;
       al.status = 'paused_vault_locked';
       al.lastError = 'Queue angehalten: Der Tresor wurde gesperrt.';

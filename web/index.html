@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="de">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Standard · Launch Console</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="alternate icon" href="/favicon.ico"><link rel="stylesheet" href="/style.css?v=6"><script type="module" src="/app.js?v=6"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Standard · Launch Console</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="alternate icon" href="/favicon.ico"><link rel="stylesheet" href="/style.css?v=7"><script type="module" src="/app.js?v=7"></script></head>
 <body>
   <aside class="sidebar">
     <a class="brand" href="/" aria-label="Standard Launch Console"><span class="brand-mark">S<span>↗</span></span><span>STANDARD<small>LAUNCH CONSOLE</small></span></a>
@@ -322,7 +322,7 @@
 
             <div id="auto-launcher-single-box">
               <label>Standard-Tresor-Wallet<select id="auto-launcher-default-wallet" name="defaultWalletId"><option value="">Keine Standard-Wallet</option></select></label>
-              <p class="field-help">Wird für jeden Queue-Launch verwendet (sofern in der CSV keine andere Wallet angegeben ist).</p>
+              <p class="field-help">Wird für jeden Queue-Launch verwendet (vom Webinterface gesteuert).</p>
             </div>
 
             <div id="auto-launcher-rotate-box" class="panel compact" hidden>
@@ -332,6 +332,14 @@
                 <button type="button" id="rotate-select-none" class="text-button">Keine</button>
               </div>
               <div id="auto-rotate-wallets-list" class="item-list"></div>
+            </div>
+
+            <div style="margin-top: 14px;">
+              <label class="checkbox">
+                <input type="checkbox" id="auto-launcher-use-csv-wallet" name="useCsvWallet">
+                <strong>Wallet-Spalte aus CSV bevorzugen</strong> (falls in der CSV pro Zeile eine eigene Wallet angegeben ist)
+              </label>
+              <p class="field-help" style="margin-bottom: 0;">Standardmäßig deaktiviert: Deine Einstellungen hier im Webinterface haben absolute Priorität. Aktiviere diese Option nur, wenn du bestimmte Tokens gezielt über eine in der CSV hinterlegte Wallet starten möchtest.</p>
             </div>
 
             <div class="divider"></div>

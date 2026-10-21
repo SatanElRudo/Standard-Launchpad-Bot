@@ -557,6 +557,26 @@ test('auto launcher controls: start, pause, soft_stop, hard_stop and count limit
   assert.equal(launcher.status().executedInRun, 1);
   assert.equal(launcher.status().enabled, true);
 
+  // 4b. Test Pause and Resume preserving executedInRun and remaining countdown
+  const pauseAfter1 = launcher.control({ action: 'pause' });
+  assert.equal(pauseAfter1.status, 'paused');
+  assert.equal(pauseAfter1.executedInRun, 1, 'executedInRun must not be reset on pause');
+
+  // Duplicate pause does nothing
+  const dupPause = launcher.control({ action: 'pause' });
+  assert.equal(dupPause.status, 'paused');
+
+  // Resume (via 'resume' or 'start')
+  const resumeAfter1 = launcher.control({ action: 'resume' });
+  assert.equal(resumeAfter1.status, 'idle');
+  assert.equal(resumeAfter1.enabled, true);
+  assert.equal(resumeAfter1.executedInRun, 1, 'executedInRun must be preserved on resume');
+
+  // Duplicate start while running does not restart or reset executedInRun
+  const dupStart = launcher.control({ action: 'start' });
+  assert.equal(dupStart.enabled, true);
+  assert.equal(dupStart.executedInRun, 1);
+
   // 5. Execute 2nd token (hits targetCount = 2)
   const res2 = await launcher.executeNext();
   assert.equal(res2.success, true);
@@ -570,6 +590,40 @@ test('auto launcher controls: start, pause, soft_stop, hard_stop and count limit
   assert.equal(hardStatus.enabled, false);
   assert.equal(hardStatus.status, 'stopped');
   assert.equal(hardStatus.executedInRun, 0);
+});
+
+test('webinterface wallet settings take priority over csv unless useCsvWallet is enabled', async () => {
+  const store = createMockStore();
+  const vault = createVault({ store, autoLockMs: 60000 });
+  vault.init('masterpass123');
+  const webWallet = vault.createWallet('Web Wallet');
+  const csvWallet = vault.createWallet('CSV Wallet');
+
+  store.state.queue.push(
+    { id: 'item-pri-1', name: 'Token Pri 1', symbol: 'TP1', country: 'us', wallet: csvWallet.address },
+    { id: 'item-pri-2', name: 'Token Pri 2', symbol: 'TP2', country: 'us', wallet: csvWallet.address }
+  );
+
+  let signedWith = null;
+  const launcher = createAutoLauncher({
+    store,
+    vault,
+    executeLaunch: async ({ draft }) => {
+      signedWith = draft.wallet;
+      return { hash: '0x' + '9'.repeat(64) };
+    },
+    inspectLaunch: async hash => ({ status: 'success', hash, token: '0x' + '8'.repeat(40), name: 'Token', symbol: 'TP' }),
+  });
+
+  // 1. By default, useCsvWallet is false -> web defaultWalletId has PRIORITY!
+  launcher.configure({ defaultWalletId: webWallet.id, useCsvWallet: false });
+  await launcher.executeNext();
+  assert.equal(signedWith, webWallet.address, 'Webinterface default wallet must take priority over CSV wallet');
+
+  // 2. When useCsvWallet is explicitly enabled -> CSV wallet is used!
+  launcher.configure({ defaultWalletId: webWallet.id, useCsvWallet: true });
+  await launcher.executeNext();
+  assert.equal(signedWith, csvWallet.address, 'CSV wallet must be used when useCsvWallet is enabled');
 });
 
 test('auto launcher manual executeNext(true) does not increment executedInRun', async () => {

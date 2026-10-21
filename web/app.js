@@ -953,6 +953,7 @@ $('#auto-launcher-form').onsubmit = e => { e.preventDefault(); busy(e.submitter,
 
   const defaultReferrer = $('#auto-launcher-referrer')?.value?.trim() || '0x0000000000000000000000000000000000000000';
   const prioGasGwei = $('#auto-launcher-snipe-prio-gas')?.value?.trim().replace(',', '.') || '0.075';
+  const useCsvWallet = $('#auto-launcher-use-csv-wallet')?.checked ?? false;
 
   await post('/auto-launcher/config', {
     enabled,
@@ -961,6 +962,7 @@ $('#auto-launcher-form').onsubmit = e => { e.preventDefault(); busy(e.submitter,
     limitMode,
     targetCount,
     walletMode,
+    useCsvWallet,
     defaultWalletId,
     rotationWalletIds,
     pairAmounts,
@@ -986,20 +988,33 @@ async function sendAutoLauncherControl(action) {
 
 if ($('#ctrl-btn-start')) {
   $('#ctrl-btn-start').onclick = () => busy($('#ctrl-btn-start'), async () => {
-    const limitMode = $('#auto-launcher-limit-mode')?.value || 'all';
-    const targetCount = Number($('#auto-launcher-target-count')?.value) || 0;
-    await post('/auto-launcher/config', { limitMode, targetCount });
-    await sendAutoLauncherControl('start');
-    show(limitMode === 'count'
-      ? `Queue gestartet (Ziel: ${targetCount} Tokens ab jetzt).`
-      : 'Queue gestartet (alle Tokens abarbeiten).');
+    const al = state.autoLauncher;
+    if (al?.enabled) return; // Toggle guard: do not allow multiple starts
+
+    const isResuming = al?.status === 'paused' || al?.status === 'paused_insufficient_funds' || al?.status === 'paused_vault_locked' || (typeof al?.remainingMsOnPause === 'number' && al.remainingMsOnPause > 0);
+
+    if (!isResuming) {
+      // Fresh start: configure targetCount from input
+      const limitMode = $('#auto-launcher-limit-mode')?.value || 'all';
+      const targetCount = Number($('#auto-launcher-target-count')?.value) || 0;
+      await post('/auto-launcher/config', { limitMode, targetCount });
+    }
+
+    await sendAutoLauncherControl(isResuming ? 'resume' : 'start');
+    show(isResuming
+      ? 'Queue fortgesetzt (Timer & Zählerstand wieder aufgenommen).'
+      : (state.autoLauncher?.limitMode === 'count'
+          ? `Queue gestartet (Ziel: ${state.autoLauncher.targetCount} Tokens ab jetzt).`
+          : 'Queue gestartet (alle Tokens abarbeiten).'));
   });
 }
 
 if ($('#ctrl-btn-pause')) {
   $('#ctrl-btn-pause').onclick = () => busy($('#ctrl-btn-pause'), async () => {
+    const al = state.autoLauncher;
+    if (!al?.enabled) return; // Toggle guard: do not allow multiple pauses
     await sendAutoLauncherControl('pause');
-    show('Queue pausiert.');
+    show('Queue pausiert (Restzeit & Zählerstand gesichert).');
   });
 }
 
@@ -1779,14 +1794,38 @@ async function refresh() {
       $('#auto-launcher-badge').textContent = badgeText;
       $('#auto-launcher-badge').className = badgeClass;
 
-      // Update control button highlight classes
+      // Update control button highlight & toggle states
       const isRunning = al.status === 'running';
       const isSoftStopping = al.status === 'soft_stopping' || al.softStopRequested;
-      const isPaused = al.status === 'paused' || al.status === 'paused_insufficient_funds' || al.status === 'paused_vault_locked';
+      const isPaused = al.status === 'paused' || al.status === 'paused_insufficient_funds' || al.status === 'paused_vault_locked' || (typeof al.remainingMsOnPause === 'number' && al.remainingMsOnPause > 0 && !al.enabled);
+      const isActive = al.enabled || isRunning;
 
-      $('#ctrl-btn-start')?.classList.toggle('active-running', al.enabled && !isSoftStopping);
-      $('#ctrl-btn-pause')?.classList.toggle('active-paused', isPaused);
-      $('#ctrl-btn-soft-stop')?.classList.toggle('active-stopping', isSoftStopping);
+      const btnStart = $('#ctrl-btn-start');
+      const btnPause = $('#ctrl-btn-pause');
+      const btnSoftStop = $('#ctrl-btn-soft-stop');
+
+      if (btnStart) {
+        btnStart.classList.toggle('active-running', isActive && !isSoftStopping);
+        btnStart.disabled = isActive;
+        btnStart.innerHTML = `<span class="ctrl-icon">▶</span> ${isActive ? 'Aktiv' : (isPaused ? 'Fortsetzen' : 'Start')}`;
+        btnStart.title = isActive
+          ? 'Queue läuft bereits'
+          : (isPaused ? 'Pausierte Queue fortsetzen (Timer & Zählerstand bleiben erhalten)' : 'Queue starten');
+      }
+
+      if (btnPause) {
+        btnPause.classList.toggle('active-paused', isPaused);
+        btnPause.disabled = !isActive;
+        btnPause.innerHTML = `<span class="ctrl-icon">⏸</span> ${isPaused ? 'Pausiert' : 'Pause'}`;
+        btnPause.title = isPaused
+          ? 'Queue ist aktuell pausiert'
+          : (!isActive ? 'Queue läuft nicht' : 'Zwischen Launches pausieren (Restzeit wird gemerkt)');
+      }
+
+      if (btnSoftStop) {
+        btnSoftStop.classList.toggle('active-stopping', isSoftStopping);
+        btnSoftStop.disabled = !isActive;
+      }
 
       // Progress banner
       if ($('#auto-launcher-status-text')) {
@@ -1800,7 +1839,9 @@ async function refresh() {
             ? `Status: ▶️ Aktiv (Nächster Launch in ${al.countdownSeconds} s)`
             : 'Status: ▶️ Aktiv (Start in Kürze …)';
         } else if (isPaused) {
-          statusMsg = 'Status: ⏸️ Pausiert';
+          statusMsg = al.countdownSeconds > 0
+            ? `Status: ⏸️ Pausiert (verbleibende Wartezeit: ${al.countdownSeconds} s)`
+            : 'Status: ⏸️ Pausiert';
         } else if (al.status === 'completed') {
           statusMsg = `Status: 🎯 Ziel-Anzahl erreicht (${al.executedInRun}/${al.targetCount} gelauncht)`;
         } else if (al.status === 'stopped') {
@@ -1818,7 +1859,8 @@ async function refresh() {
       const isRotate = al.walletMode === 'rotate';
       let infoText = isRotate
         ? `Führt alle ${al.intervalMinutes} Minuten den nächsten Eintrag der Queue aus und rotiert reihum durch ${al.rotationWalletIds?.length || 0} angewählte Tresor-Wallets.`
-        : `Führt alle ${al.intervalMinutes} Minuten den nächsten Eintrag der Queue mit der festen Standard-Wallet aus (Fallback oder CSV).`;
+        : `Führt alle ${al.intervalMinutes} Minuten den nächsten Eintrag der Queue mit der im Webinterface gewählten Standard-Wallet aus.`;
+      if (al.useCsvWallet) infoText += ' (Wallet aus CSV-Zeile wird bevorzugt).';
       if (al.nextWallet) infoText += ` Nächste Launch-Wallet: 🔒 ${al.nextWallet.label} (${short(al.nextWallet.address)}).`;
       if (al.lastRunAt) infoText += ` Letzter Lauf: ${date(al.lastRunAt)}.`;
       if (al.lastSuccess) infoText += ` Zuletzt gelauncht: ${al.lastSuccess.name} (${short(al.lastSuccess.token)}).`;
@@ -1870,6 +1912,9 @@ async function refresh() {
         $('#auto-wallet-mode-single').checked = !isRotate;
         $('#auto-launcher-rotate-box').hidden = !isRotate;
         $('#auto-launcher-single-box').hidden = isRotate;
+        if ($('#auto-launcher-use-csv-wallet')) {
+          $('#auto-launcher-use-csv-wallet').checked = Boolean(al.useCsvWallet);
+        }
 
         if (al.snipeOrders && al.snipeOrders.length > 0) {
           $('#auto-launcher-snipe-enabled').checked = true;
