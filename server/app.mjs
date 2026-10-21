@@ -200,7 +200,7 @@ export function createApp({
                 const monitorId = current.id;
                 void (async () => {
                   try {
-                    const defaultRef = state.autoLauncher?.defaultReferrer || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
+                    const defaultRef = state.autoLauncher?.defaultReferrer || '0x0000000000000000000000000000000000000000';
                     const effectiveRef = (current.referrer && current.referrer !== '0x0000000000000000000000000000000000000000') ? current.referrer : defaultRef;
                     const sellRes = await sellFn({
                       curve: targetCurve,
@@ -748,7 +748,7 @@ export function createApp({
       if (req.method === 'POST' && path === '/api/snipe') {
         assert(vault.isUnlocked(), 'Tresor ist gesperrt.');
         const input = await body(req);
-        const defaultRef = state.autoLauncher?.defaultReferrer || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
+        const defaultRef = state.autoLauncher?.defaultReferrer || '0x0000000000000000000000000000000000000000';
         const effectiveRef = (input.referrer && input.referrer !== '0x0000000000000000000000000000000000000000') ? input.referrer : defaultRef;
         const results = await snipeFn({
           curve: input.curve,
@@ -787,7 +787,7 @@ export function createApp({
             console.warn('Auto-hosting metadata error:', he.message);
           }
         }
-        const defaultRef = state.autoLauncher?.defaultReferrer || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
+        const defaultRef = state.autoLauncher?.defaultReferrer || '0x0000000000000000000000000000000000000000';
         const effectiveRef = (input.referrer && input.referrer !== '0x0000000000000000000000000000000000000000') ? input.referrer : defaultRef;
         const launchDraft = { ...input, wallet: wallet.address, referrer: effectiveRef };
         const result = await executeLaunch({ draft: launchDraft, privateKey });
@@ -978,7 +978,7 @@ export function createApp({
           targetPurchases = vw.map(w => ({ walletId: w.id, label: w.label, address: w.address }));
         }
 
-        const defaultRef = state.autoLauncher?.defaultReferrer || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
+        const defaultRef = state.autoLauncher?.defaultReferrer || '0x0000000000000000000000000000000000000000';
         const effectiveRef = (mon.referrer && mon.referrer !== '0x0000000000000000000000000000000000000000') ? mon.referrer : defaultRef;
         const sellRes = await sellFn({
           curve: mon.curve,

@@ -251,7 +251,7 @@ const catCounters = { beans: 0, vlad: 0, spcx: 0, baba: 0, skhy: 0, ai: 0 };
 
 // Format the 20 base tokens
 const first20Rows = base20Tokens.map(t => {
-  return `${t.name},${t.symbol},${t.country},"${t.desc}",${t.img},only in its own pool,10%,at exit,off,off,true,"marketCapUsd>=5000;gain>=50;drawdown>=30",true,all,0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7`;
+  return `${t.name},${t.symbol},${t.country},"${t.desc}",${t.img},only in its own pool,10%,at exit,off,off,true,"marketCapUsd>=5000;gain>=50;drawdown>=30",true,all,0x0000000000000000000000000000000000000000`;
 });
 
 // Build 180 meta rows
@@ -263,7 +263,7 @@ const newRows = metaTokens.map((t) => {
     catCounters[t.cat]++;
   }
 
-  return `${t.name},${t.symbol},${t.country},"${t.desc}",${asset},only in its own pool,10%,at exit,off,off,true,"marketCapUsd>=5000;gain>=50;drawdown>=30",true,all,0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7`;
+  return `${t.name},${t.symbol},${t.country},"${t.desc}",${asset},only in its own pool,10%,at exit,off,off,true,"marketCapUsd>=5000;gain>=50;drawdown>=30",true,all,0x0000000000000000000000000000000000000000`;
 });
 
 const allRows = [...first20Rows, ...newRows];

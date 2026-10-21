@@ -32,7 +32,6 @@ const standardErc20Abi = parseAbi([
 
 const ANVIL_PATHS = [
   process.env.ANVIL_PATH,
-  'E:\\AI Projekte\\DegenNexus\\.tools\\foundry\\anvil.exe',
   'anvil',
 ].filter(Boolean);
 

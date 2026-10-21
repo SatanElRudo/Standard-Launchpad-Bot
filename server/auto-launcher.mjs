@@ -32,7 +32,7 @@ export function createAutoLauncher({
     inFlightTx: null,
     snipeOrders: [],
     prioGasGwei: '0.075',
-    defaultReferrer: '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7',
+    defaultReferrer: '0x0000000000000000000000000000000000000000',
     pairAmounts: {
       us: '0.05',
       eth: '0.005',
@@ -58,7 +58,7 @@ export function createAutoLauncher({
   state.autoLauncher.walletMode ??= 'single';
   state.autoLauncher.rotationWalletIds ??= [];
   state.autoLauncher.rotationIndex ??= 0;
-  state.autoLauncher.defaultReferrer ??= '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
+  state.autoLauncher.defaultReferrer ??= '0x0000000000000000000000000000000000000000';
   state.autoLauncher.prioGasGwei ??= '0.075';
   state.autoLauncher.pairAmounts ??= {
     us: '0.05',
@@ -146,7 +146,7 @@ export function createAutoLauncher({
       inFlightTx: al.inFlightTx ?? null,
       countdownSeconds,
       queueLength: state.queue?.length ?? 0,
-      defaultReferrer: al.defaultReferrer || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7',
+      defaultReferrer: al.defaultReferrer || '0x0000000000000000000000000000000000000000',
       prioGasGwei: al.prioGasGwei ?? '0.075',
       snipeOrders: al.snipeOrders ?? [],
       pairAmounts: al.pairAmounts ?? { us: '0.05', eth: '0.005', cn: '0.1', kr: '0.1' },
@@ -437,7 +437,7 @@ export function createAutoLauncher({
           console.warn('Auto-hosting metadata error:', he.message);
         }
       }
-      const defaultRef = al.defaultReferrer || '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7';
+      const defaultRef = al.defaultReferrer || '0x0000000000000000000000000000000000000000';
       const effectiveRef = (item.referrer && item.referrer !== '0x0000000000000000000000000000000000000000') ? item.referrer : defaultRef;
       const launchDraft = { ...item, wallet: wallet.address, referrer: effectiveRef };
       const { hash } = await executeLaunch({ draft: launchDraft, privateKey });

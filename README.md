@@ -113,7 +113,7 @@ Der Bot unterstützt alle Handelspaare von Standard Reserve nativ:
 * **Exakte Erlöserfassung:** Liest den tatsächlichen Rückfluss in ETH oder SPCX direkt aus den On-Chain-Receipts aus.
 
 ### 7. 🎁 Referral / Punkte-Belohnungen
-* Die konfigurierte Referrer-Adresse (Standard: `0xE26e33215E48e9a0E77B39E5856cFb87886Cd7e7` oder deine eigene) wird in allen Transaktionen mitgegeben:
+* Die im Auto-Launcher oder im Launch-Formular konfigurierte Referrer-Adresse (oder deine eigene) wird in allen Transaktionen mitgegeben:
   1. Token Launch (`params.referrer`)
   2. Snipe Kauf (`router.buyExactIn` Parameter 6)
   3. Exit Verkauf (`router.sellExactIn` Parameter 5)

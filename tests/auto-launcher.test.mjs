@@ -497,13 +497,13 @@ test('auto launcher forwards default and token-specific referrer to launch and s
 
   launcher.configure({
     enabled: true,
-    defaultReferrer: '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7',
+    defaultReferrer: '0x7777777777777777777777777777777777777777',
     snipeOrders: [{ walletId: sniper.id, amount: '0.05' }],
   });
 
   await launcher.executeNext();
-  assert.equal(launchReferrer, '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7');
-  assert.equal(snipeReferrer, '0xe26e33215e48e9a0e77b39e5856cfb87886cd7e7');
+  assert.equal(launchReferrer, '0x7777777777777777777777777777777777777777');
+  assert.equal(snipeReferrer, '0x7777777777777777777777777777777777777777');
 });
 
 test('auto launcher controls: start, pause, soft_stop, hard_stop and count limit', async () => {
